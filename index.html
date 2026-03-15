@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Arcane Arena — Train Your Golem</title>
+    <meta name="description" content="An educational Reinforcement Learning game where you train Magical Golems with Q-learning to compete in a sumo-style ring." />
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fonts: Cinzel (headings) + Inter (body) -->
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+    <!-- Firebase SDKs (compat for quick usage) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+    <script>
+    tailwind.config = {
+        theme: {
+            extend: {
+                fontFamily: {
+                    cinzel: ['Cinzel', 'serif'],
+                    inter: ['Inter', 'sans-serif'],
+                },
+            },
+        },
+    };
+    </script>
+
+    <style>
+    /* ── Global ──────────────────────────────────── */
+    * { box-sizing: border-box; }
+    body {
+        font-family: 'Inter', sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+        overflow-x: hidden;
+    }
+
+    /* ── Animated gradient background ────────────── */
+    .hero-bg {
+        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 40%, #312e81 70%, #0f172a 100%);
+        background-size: 400% 400%;
+        animation: gradientShift 12s ease infinite;
+    }
+    @keyframes gradientShift {
+        0%   { background-position: 0% 50%; }
+        50%  { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+
+    /* ── Glowing text ────────────────────────────── */
+    .glow-text {
+        text-shadow: 0 0 12px rgba(139, 92, 246, 0.6),
+                     0 0 30px rgba(139, 92, 246, 0.3);
+    }
+
+    /* ── Card glass effect ───────────────────────── */
+    .glass-card {
+        background: rgba(30, 27, 75, 0.45);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(139, 92, 246, 0.18);
+        transition: box-shadow 0.3s ease, border-color 0.3s ease;
+    }
+    .glass-card:hover {
+        border-color: rgba(139, 92, 246, 0.4);
+        box-shadow: 0 0 28px rgba(139, 92, 246, 0.12);
+    }
+
+    /* ── Custom range slider ─────────────────────── */
+    input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        height: 6px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #6d28d9, #7c3aed, #a78bfa);
+        outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #c4b5fd;
+        border: 2px solid #7c3aed;
+        cursor: pointer;
+        box-shadow: 0 0 8px rgba(124, 58, 237, 0.5);
+        transition: transform 0.15s;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+        transform: scale(1.25);
+    }
+
+    /* ── Buttons ─────────────────────────────────── */
+    .btn-arcane {
+        background: linear-gradient(135deg, #7c3aed, #6d28d9);
+        transition: all 0.25s ease;
+        box-shadow: 0 4px 20px rgba(109, 40, 217, 0.3);
+    }
+    .btn-arcane:hover:not(:disabled) {
+        background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+        box-shadow: 0 4px 30px rgba(139, 92, 246, 0.5);
+        transform: translateY(-1px);
+    }
+    .btn-arcane:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-secondary {
+        background: rgba(51, 65, 85, 0.6);
+        border: 1px solid rgba(139, 92, 246, 0.25);
+        transition: all 0.25s ease;
+    }
+    .btn-secondary:hover { border-color: rgba(139, 92, 246, 0.6); }
+
+    /* ── Mini-grid canvas container ──────────────── */
+    .mini-grid-container {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+    }
+
+    /* ── Pulsing dot animation ───────────────────── */
+    @keyframes pulse-dot {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+    }
+    .pulse-dot { animation: pulse-dot 1.2s ease-in-out infinite; }
+    .pulse-dot:nth-child(2) { animation-delay: 0.2s; }
+    .pulse-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    /* ── Progress bar fill ──────────────────────── */
+    .progress-fill {
+        background: linear-gradient(90deg, #6d28d9, #8b5cf6, #a78bfa);
+        transition: width 0.3s ease;
+    }
+
+    /* ── Floating particles ──────────────────────── */
+    .particle {
+        position: fixed;
+        width: 3px;
+        height: 3px;
+        background: rgba(139, 92, 246, 0.35);
+        border-radius: 50%;
+        pointer-events: none;
+        animation: floatUp linear infinite;
+    }
+    @keyframes floatUp {
+        0%   { transform: translateY(100vh) scale(0); opacity: 0; }
+        10%  { opacity: 1; }
+        90%  { opacity: 1; }
+        100% { transform: translateY(-10vh) scale(1); opacity: 0; }
+    }
+
+    /* ── Scrollbar ───────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #4c1d95; border-radius: 999px; }
+
+    /* ── Tabs ────────────────────────────────────── */
+    .tab-btn { transition: all 0.2s ease; }
+    .tab-btn.active {
+        background: linear-gradient(135deg, rgba(124, 58, 237, 0.3), rgba(109, 40, 217, 0.2));
+        border-color: #7c3aed;
+        color: #c4b5fd;
+    }
+
+    /* ── Model cards ─────────────────────────────── */
+    .model-card {
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+    .model-card:hover {
+        border-color: rgba(139, 92, 246, 0.5);
+        background: rgba(30, 27, 75, 0.7);
+    }
+    .model-card.selected {
+        border-color: #8b5cf6;
+        background: rgba(124, 58, 237, 0.15);
+        box-shadow: 0 0 16px rgba(139, 92, 246, 0.2);
+    }
+    </style>
+</head>
+<body class="hero-bg min-h-screen">
+
+<!-- ═══════════════════════════════════════════════════════════
+     FLOATING PARTICLES (background ambiance)
+     ═══════════════════════════════════════════════════════════ -->
+<div id="particles" class="fixed inset-0 pointer-events-none z-0" aria-hidden="true"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     HEADER
+     ═══════════════════════════════════════════════════════════ -->
+<header class="relative z-10 pt-8 pb-4 px-6">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+        <div>
+            <h1 class="font-cinzel text-4xl font-black tracking-wider glow-text bg-gradient-to-r from-purple-300 via-violet-400 to-indigo-400 bg-clip-text text-transparent">
+                ⚔ Arcane Arena
+            </h1>
+            <p class="text-sm text-slate-400 mt-1 font-inter">Train your Magical Golem with Q-Learning</p>
+        </div>
+        <div class="flex items-center gap-4">
+            <div class="glass-card rounded-lg px-4 py-2 text-xs">
+                <span class="text-slate-400">Summoner ID:</span>
+                <span id="userId" class="text-purple-300 font-mono ml-1"></span>
+            </div>
+        </div>
+    </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TAB NAVIGATION
+     ═══════════════════════════════════════════════════════════ -->
+<nav class="relative z-10 px-6 mb-6">
+    <div class="max-w-7xl mx-auto flex gap-2">
+        <button onclick="switchTab('train')" id="tab-train" class="tab-btn active font-inter text-sm px-5 py-2.5 rounded-lg border border-transparent text-slate-300">
+            🧪 Training Lab
+        </button>
+        <button onclick="switchTab('pvp')" id="tab-pvp" class="tab-btn font-inter text-sm px-5 py-2.5 rounded-lg border border-transparent text-slate-300">
+            ⚔️ PvP Arena
+        </button>
+        <button onclick="switchTab('archives')" id="tab-archives" class="tab-btn font-inter text-sm px-5 py-2.5 rounded-lg border border-transparent text-slate-300">
+            📜 Archives
+        </button>
+    </div>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TAB: TRAINING LAB
+     ═══════════════════════════════════════════════════════════ -->
+<main id="panel-train" class="relative z-10 px-6 pb-16">
+<div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- ── Left: Controls ─────────────────────────── -->
+    <section class="lg:col-span-4 space-y-5">
+
+        <!-- Reward Weights Card -->
+        <div class="glass-card rounded-2xl p-6">
+            <h2 class="font-cinzel text-lg font-bold text-purple-200 mb-4 flex items-center gap-2">
+                <span class="text-2xl">⚗️</span> Reward Alchemy
+            </h2>
+
+            <div class="space-y-4">
+                <div>
+                    <div class="flex justify-between text-sm mb-1">
+                        <label class="text-slate-300">Push Reward</label>
+                        <span id="val-push" class="text-purple-300 font-mono">10</span>
+                    </div>
+                    <input type="range" id="slider-push" min="0" max="50" value="10" step="1"
+                           class="w-full" oninput="document.getElementById('val-push').textContent = this.value" />
+                </div>
+                <div>
+                    <div class="flex justify-between text-sm mb-1">
+                        <label class="text-slate-300">Falling Penalty</label>
+                        <span id="val-fall" class="text-purple-300 font-mono">-50</span>
+                    </div>
+                    <input type="range" id="slider-fall" min="-200" max="0" value="-50" step="5"
+                           class="w-full" oninput="document.getElementById('val-fall').textContent = this.value" />
+                </div>
+                <div>
+                    <div class="flex justify-between text-sm mb-1">
+                        <label class="text-slate-300">Centre-Seeking</label>
+                        <span id="val-center" class="text-purple-300 font-mono">1</span>
+                    </div>
+                    <input type="range" id="slider-center" min="0" max="10" value="1" step="0.5"
+                           class="w-full" oninput="document.getElementById('val-center').textContent = this.value" />
+                </div>
+                <div>
+                    <div class="flex justify-between text-sm mb-1">
+                        <label class="text-slate-300">Step Penalty</label>
+                        <span id="val-step" class="text-purple-300 font-mono">-0.1</span>
+                    </div>
+                    <input type="range" id="slider-step" min="-2" max="0" value="-0.1" step="0.1"
+                           class="w-full" oninput="document.getElementById('val-step').textContent = parseFloat(this.value).toFixed(1)" />
+                </div>
+            </div>
+        </div>
+
+        <!-- Training Params Card -->
+        <div class="glass-card rounded-2xl p-6">
+            <h2 class="font-cinzel text-lg font-bold text-purple-200 mb-4 flex items-center gap-2">
+                <span class="text-2xl">📊</span> Training Params
+            </h2>
+            <div class="space-y-4">
+                <div>
+                    <div class="flex justify-between text-sm mb-1">
+                        <label class="text-slate-300">Episodes</label>
+                        <span id="val-episodes" class="text-purple-300 font-mono">3000</span>
+                    </div>
+                    <input type="range" id="slider-episodes" min="500" max="10000" value="3000" step="500"
+                           class="w-full" oninput="document.getElementById('val-episodes').textContent = this.value" />
+                </div>
+                <div>
+                    <div class="flex justify-between text-sm mb-1">
+                        <label class="text-slate-300">Learning Rate (α)</label>
+                        <span id="val-alpha" class="text-purple-300 font-mono">0.10</span>
+                    </div>
+                    <input type="range" id="slider-alpha" min="0.01" max="0.5" value="0.1" step="0.01"
+                           class="w-full" oninput="document.getElementById('val-alpha').textContent = parseFloat(this.value).toFixed(2)" />
+                </div>
+                <div>
+                    <div class="flex justify-between text-sm mb-1">
+                        <label class="text-slate-300">Discount (γ)</label>
+                        <span id="val-gamma" class="text-purple-300 font-mono">0.95</span>
+                    </div>
+                    <input type="range" id="slider-gamma" min="0.5" max="1.0" value="0.95" step="0.01"
+                           class="w-full" oninput="document.getElementById('val-gamma').textContent = parseFloat(this.value).toFixed(2)" />
+                </div>
+            </div>
+        </div>
+
+        <!-- Train Button -->
+        <button id="btn-train" onclick="startTraining()" class="btn-arcane w-full py-3.5 rounded-xl font-cinzel font-bold text-white tracking-wider text-lg">
+            🔮 Summon Training
+        </button>
+
+        <!-- Progress -->
+        <div id="train-progress" class="hidden glass-card rounded-2xl p-5">
+            <div class="flex items-center gap-2 mb-3">
+                <div class="flex gap-1">
+                    <span class="w-2 h-2 bg-purple-400 rounded-full pulse-dot"></span>
+                    <span class="w-2 h-2 bg-purple-400 rounded-full pulse-dot"></span>
+                    <span class="w-2 h-2 bg-purple-400 rounded-full pulse-dot"></span>
+                </div>
+                <span id="train-status" class="text-sm text-purple-200">Channeling arcane energies…</span>
+            </div>
+            <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                <div id="progress-bar" class="h-full progress-fill rounded-full" style="width: 0%"></div>
+            </div>
+        </div>
+
+        <!-- Save to Archives -->
+        <div id="save-section" class="hidden">
+            <div class="glass-card rounded-2xl p-6">
+                <h2 class="font-cinzel text-lg font-bold text-purple-200 mb-4">💾 Save to Archives</h2>
+                <input id="model-name" type="text" placeholder="Name your Golem…"
+                       class="w-full bg-slate-800/60 border border-purple-900/40 rounded-lg px-4 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500 mb-3" />
+                <button onclick="saveModel()" class="btn-secondary w-full py-2.5 rounded-lg text-sm font-medium text-purple-200">
+                    📜 Save Q-Table
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── Right: Visualiser ──────────────────────── -->
+    <section class="lg:col-span-8 space-y-5">
+
+        <!-- Training Stats -->
+        <div id="stats-bar" class="hidden glass-card rounded-2xl p-5">
+            <div class="grid grid-cols-3 gap-4 text-center">
+                <div>
+                    <p class="text-xs text-slate-400 uppercase tracking-wider">Win Rate</p>
+                    <p id="stat-winrate" class="font-cinzel text-2xl font-bold text-green-400">—</p>
+                </div>
+                <div>
+                    <p class="text-xs text-slate-400 uppercase tracking-wider">Q-Table States</p>
+                    <p id="stat-states" class="font-cinzel text-2xl font-bold text-purple-300">—</p>
+                </div>
+                <div>
+                    <p class="text-xs text-slate-400 uppercase tracking-wider">Final ε</p>
+                    <p id="stat-epsilon" class="font-cinzel text-2xl font-bold text-amber-400">—</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Runic Heatmap (large) -->
+        <div class="glass-card rounded-2xl p-5 flex flex-col items-center">
+            <h2 class="font-cinzel text-lg font-bold text-purple-200 mb-4 flex items-center gap-2">
+                <span class="text-2xl">🗺️</span> Runic Heatmap &amp; Policy
+            </h2>
+            <canvas id="heatmap-canvas" width="420" height="420" class="rounded-xl" style="background:#0c0f1d;"></canvas>
+            <p class="text-xs text-slate-500 mt-2">Glow = high Q-value · Arrows = preferred direction</p>
+        </div>
+
+        <!-- 9 Mini-Grids -->
+        <div class="glass-card rounded-2xl p-5">
+            <h2 class="font-cinzel text-lg font-bold text-purple-200 mb-4 flex items-center gap-2">
+                <span class="text-2xl">🧠</span> Multi-Instance Showcase
+                <span class="text-xs text-slate-400 font-inter font-normal">(9 parallel scenarios)</span>
+            </h2>
+            <!-- Template tag for mini-grid injection -->
+            <template id="mini-grid-template">
+                <div class="relative">
+                    <canvas class="mini-canvas rounded-lg w-full" width="180" height="180" style="background:#0c0f1d;"></canvas>
+                    <div class="absolute bottom-1 left-1 text-[10px] text-slate-500 font-mono mini-label"></div>
+                    <div class="absolute top-1 right-1 text-[10px] font-mono mini-result hidden rounded px-1"></div>
+                </div>
+            </template>
+            <div id="mini-grids" class="mini-grid-container"></div>
+            <div id="mini-placeholder" class="text-center py-12 text-slate-500 text-sm">
+                Train your golem to see it in action across 9 different scenarios.
+            </div>
+        </div>
+    </section>
+
+</div>
+</main>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TAB: PVP ARENA
+     ═══════════════════════════════════════════════════════════ -->
+<section id="panel-pvp" class="hidden relative z-10 px-6 pb-16">
+<div class="max-w-5xl mx-auto space-y-6">
+    <div class="text-center">
+        <h2 class="font-cinzel text-3xl font-bold glow-text bg-gradient-to-r from-red-400 via-purple-400 to-blue-400 bg-clip-text text-transparent">
+            ⚔️ PvP Battle Arena
+        </h2>
+        <p class="text-slate-400 text-sm mt-1">Select two saved golems to duel</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Fighter A -->
+        <div class="glass-card rounded-2xl p-5">
+            <h3 class="font-cinzel text-purple-200 font-bold mb-3">🔵 Fighter A</h3>
+            <div id="pvp-list-a" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+                <p class="text-slate-500 text-sm">No saved models yet.</p>
+            </div>
+        </div>
+        <!-- Fighter B -->
+        <div class="glass-card rounded-2xl p-5">
+            <h3 class="font-cinzel text-red-300 font-bold mb-3">🔴 Fighter B</h3>
+            <div id="pvp-list-b" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+                <p class="text-slate-500 text-sm">No saved models yet.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="text-center">
+        <button id="btn-pvp" onclick="startPvP()" class="btn-arcane px-10 py-3.5 rounded-xl font-cinzel font-bold text-white tracking-wider text-lg" disabled>
+            ⚔️ Begin Duel
+        </button>
+    </div>
+
+    <!-- Large arena canvas -->
+    <div class="glass-card rounded-2xl p-5 flex flex-col items-center">
+        <canvas id="pvp-canvas" width="490" height="490" class="rounded-xl" style="background:#0c0f1d;"></canvas>
+        <p id="pvp-result" class="mt-3 font-cinzel text-lg text-purple-200 hidden"></p>
+    </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TAB: ARCHIVES
+     ═══════════════════════════════════════════════════════════ -->
+<section id="panel-archives" class="hidden relative z-10 px-6 pb-16">
+<div class="max-w-4xl mx-auto space-y-6">
+    <div class="text-center">
+        <h2 class="font-cinzel text-3xl font-bold glow-text bg-gradient-to-r from-amber-300 via-purple-300 to-violet-400 bg-clip-text text-transparent">
+            📜 Model Archives
+        </h2>
+        <p class="text-slate-400 text-sm mt-1">Saved golems stored in the Arcane Library</p>
+    </div>
+    <div id="archives-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <p class="text-slate-500 text-sm col-span-2 text-center py-8">No models saved yet. Train a golem first!</p>
+    </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     JAVASCRIPT
+     ═══════════════════════════════════════════════════════════ -->
+<script>
+// ─────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────
+const GRID = 7;
+const CENTER = 3;
+const RING_RADIUS = 3.2;
+const ARROW_CHARS = ['↑', '↓', '←', '→'];
+const ARROW_DX    = [0, 0, -1, 1];
+const ARROW_DY    = [-1, 1, 0, 0];
+
+// ─────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────
+let currentQTable = null;
+let userId = 'Summoner_' + Math.random().toString(36).slice(2, 8).toUpperCase();
+document.getElementById('userId').textContent = userId;
+
+// PvP selections
+let pvpSelA = null, pvpSelB = null;
+
+// ─────────────────────────────────────────────────────────────
+// FIREBASE SETUP
+// Replace this config with your own Firebase project credentials.
+// ─────────────────────────────────────────────────────────────
+const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT.appspot.com",
+    messagingSenderId: "000000000000",
+    appId: "YOUR_APP_ID",
+};
+
+let db = null;
+let firebaseReady = false;
+const FIREBASE_COLLECTION = 'artifacts/arcane-arena/public/data/models';
+
+try {
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    // Quick check — if the project ID is still placeholder, skip
+    if (firebaseConfig.projectId !== "YOUR_PROJECT_ID") {
+        firebaseReady = true;
+        loadArchives();
+    }
+} catch (e) {
+    console.warn('Firebase not configured — archives will use localStorage fallback.', e);
+}
+
+// ─────────────────────────────────────────────────────────────
+// PARTICLES (ambient background)
+// ─────────────────────────────────────────────────────────────
+(function spawnParticles() {
+    const container = document.getElementById('particles');
+    for (let i = 0; i < 30; i++) {
+        const p = document.createElement('div');
+        p.className = 'particle';
+        p.style.left = Math.random() * 100 + '%';
+        p.style.animationDuration = (8 + Math.random() * 12) + 's';
+        p.style.animationDelay = Math.random() * 10 + 's';
+        p.style.width = p.style.height = (2 + Math.random() * 3) + 'px';
+        container.appendChild(p);
+    }
+})();
+
+// ─────────────────────────────────────────────────────────────
+// TAB SWITCHING
+// ─────────────────────────────────────────────────────────────
+function switchTab(name) {
+    ['train', 'pvp', 'archives'].forEach(t => {
+        document.getElementById('panel-' + t).classList.toggle('hidden', t !== name);
+        document.getElementById('tab-' + t).classList.toggle('active', t === name);
+    });
+    if (name === 'pvp' || name === 'archives') refreshModelLists();
+}
+
+// ─────────────────────────────────────────────────────────────
+// TRAINING
+// ─────────────────────────────────────────────────────────────
+async function startTraining() {
+    const btn = document.getElementById('btn-train');
+    const prog = document.getElementById('train-progress');
+    const bar = document.getElementById('progress-bar');
+    const status = document.getElementById('train-status');
+
+    btn.disabled = true;
+    prog.classList.remove('hidden');
+    bar.style.width = '10%';
+    status.textContent = 'Channeling arcane energies…';
+
+    const body = {
+        push_reward:   parseFloat(document.getElementById('slider-push').value),
+        fall_penalty:  parseFloat(document.getElementById('slider-fall').value),
+        center_reward: parseFloat(document.getElementById('slider-center').value),
+        step_penalty:  parseFloat(document.getElementById('slider-step').value),
+        episodes:      parseInt(document.getElementById('slider-episodes').value),
+        alpha:         parseFloat(document.getElementById('slider-alpha').value),
+        gamma:         parseFloat(document.getElementById('slider-gamma').value),
+    };
+
+    bar.style.width = '30%';
+    status.textContent = 'Golem is learning…';
+
+    try {
+        const res = await fetch('/api/train', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+
+        bar.style.width = '70%';
+        status.textContent = 'Training complete — summoning showcase…';
+
+        currentQTable = data.q_table;
+
+        // Show stats
+        const history = data.history;
+        const lastH = history[history.length - 1];
+        document.getElementById('stat-winrate').textContent = (lastH.win_rate * 100).toFixed(1) + '%';
+        document.getElementById('stat-states').textContent = Object.keys(data.q_table).length;
+        document.getElementById('stat-epsilon').textContent = lastH.epsilon.toFixed(4);
+        document.getElementById('stats-bar').classList.remove('hidden');
+
+        // Render heatmap
+        renderHeatmap(data.q_table);
+
+        bar.style.width = '85%';
+        status.textContent = 'Running 9 simulations…';
+
+        // Run 9-grid showcase
+        const simRes = await fetch('/api/simulate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ q_table: data.q_table }),
+        });
+        const simData = await simRes.json();
+
+        bar.style.width = '100%';
+        status.textContent = 'Showcase ready ✨';
+
+        animateMiniGrids(simData.simulations);
+        document.getElementById('save-section').classList.remove('hidden');
+
+    } catch (err) {
+        status.textContent = '❌ Error: ' + err.message;
+    }
+
+    btn.disabled = false;
+}
+
+// ─────────────────────────────────────────────────────────────
+// RENDERING HELPERS
+// ─────────────────────────────────────────────────────────────
+
+/** Check whether a grid cell is inside the ring */
+function isInsideRing(x, y) {
+    const dx = x - CENTER, dy = y - CENTER;
+    return Math.sqrt(dx*dx + dy*dy) <= RING_RADIUS;
+}
+
+/**
+ * Draw a single frame on a canvas.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} size - pixel width/height of the canvas
+ * @param {number} ax - agent x
+ * @param {number} ay - agent y
+ * @param {number} ox - opp x
+ * @param {number} oy - opp y
+ * @param {string} event - event tag
+ */
+function drawFrame(ctx, size, ax, ay, ox, oy, event) {
+    const cell = size / GRID;
+    ctx.clearRect(0, 0, size, size);
+
+    // Draw grid tiles
+    for (let x = 0; x < GRID; x++) {
+        for (let y = 0; y < GRID; y++) {
+            const inside = isInsideRing(x, y);
+            ctx.fillStyle = inside ? '#1a1a3e' : '#0a0a1a';
+            ctx.fillRect(x * cell + 0.5, y * cell + 0.5, cell - 1, cell - 1);
+            if (inside) {
+                // Subtle ring border glow
+                ctx.strokeStyle = 'rgba(139, 92, 246, 0.08)';
+                ctx.strokeRect(x * cell + 0.5, y * cell + 0.5, cell - 1, cell - 1);
+            }
+        }
+    }
+
+    // Draw ring boundary circle
+    ctx.beginPath();
+    ctx.arc((CENTER + 0.5) * cell, (CENTER + 0.5) * cell, RING_RADIUS * cell, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(139, 92, 246, 0.25)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Draw opponent (red golem)
+    if (ox >= 0 && ox < GRID && oy >= 0 && oy < GRID) {
+        const grad = ctx.createRadialGradient(
+            (ox+0.5)*cell, (oy+0.5)*cell, 2,
+            (ox+0.5)*cell, (oy+0.5)*cell, cell*0.42
+        );
+        grad.addColorStop(0, '#ff6b6b');
+        grad.addColorStop(1, '#c92a2a');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc((ox+0.5)*cell, (oy+0.5)*cell, cell*0.35, 0, Math.PI*2);
+        ctx.fill();
+        // Glow
+        ctx.shadowColor = '#ff6b6b';
+        ctx.shadowBlur = 8;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+
+    // Draw agent (blue/purple golem)
+    if (ax >= 0 && ax < GRID && ay >= 0 && ay < GRID) {
+        const grad = ctx.createRadialGradient(
+            (ax+0.5)*cell, (ay+0.5)*cell, 2,
+            (ax+0.5)*cell, (ay+0.5)*cell, cell*0.42
+        );
+        grad.addColorStop(0, '#a78bfa');
+        grad.addColorStop(1, '#6d28d9');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc((ax+0.5)*cell, (ay+0.5)*cell, cell*0.35, 0, Math.PI*2);
+        ctx.fill();
+        ctx.shadowColor = '#a78bfa';
+        ctx.shadowBlur = 10;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+
+    // Event flash
+    if (event === 'win') {
+        ctx.fillStyle = 'rgba(74, 222, 128, 0.15)';
+        ctx.fillRect(0, 0, size, size);
+    } else if (event === 'fall') {
+        ctx.fillStyle = 'rgba(248, 113, 113, 0.15)';
+        ctx.fillRect(0, 0, size, size);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// RUNIC HEATMAP
+// ─────────────────────────────────────────────────────────────
+
+function renderHeatmap(qTable) {
+    const canvas = document.getElementById('heatmap-canvas');
+    const ctx = canvas.getContext('2d');
+    const size = canvas.width;
+    const cell = size / GRID;
+
+    ctx.clearRect(0, 0, size, size);
+
+    // Aggregate: for each agent cell (ax, ay), find the max Q across all
+    // opponent positions and all actions, plus the best action.
+    const maxQ = {};   // key "ax,ay" → max q value
+    const bestA = {};  // key "ax,ay" → best action index
+
+    for (const [stateStr, qVals] of Object.entries(qTable)) {
+        // Parse state "(ax, ay, ox, oy)"
+        const nums = stateStr.replace(/[()]/g, '').split(',').map(Number);
+        if (nums.length !== 4) continue;
+        const [ax, ay] = nums;
+        const key = ax + ',' + ay;
+        const qMax = Math.max(...qVals);
+        if (!(key in maxQ) || qMax > maxQ[key]) {
+            maxQ[key] = qMax;
+            bestA[key] = qVals.indexOf(qMax);
+        }
+    }
+
+    // Normalise Q values for colour mapping
+    const allMax = Object.values(maxQ);
+    const qMin = Math.min(...allMax, 0);
+    const qRange = Math.max(...allMax) - qMin || 1;
+
+    // Draw tiles
+    for (let x = 0; x < GRID; x++) {
+        for (let y = 0; y < GRID; y++) {
+            const inside = isInsideRing(x, y);
+            ctx.fillStyle = inside ? '#1a1a3e' : '#0a0a1a';
+            ctx.fillRect(x * cell + 1, y * cell + 1, cell - 2, cell - 2);
+
+            if (inside) {
+                const key = x + ',' + y;
+                if (key in maxQ) {
+                    // Q-value glow
+                    const norm = (maxQ[key] - qMin) / qRange;
+                    const alpha = 0.1 + norm * 0.55;
+                    const r = Math.round(80 + norm * 80);
+                    const g = Math.round(40 + norm * 60);
+                    const b = Math.round(180 + norm * 75);
+                    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                    ctx.fillRect(x * cell + 1, y * cell + 1, cell - 2, cell - 2);
+
+                    // Outer glow effect
+                    ctx.shadowColor = `rgba(${r}, ${g}, ${b}, 0.6)`;
+                    ctx.shadowBlur = 12 * norm;
+                    ctx.fillRect(x * cell + 1, y * cell + 1, cell - 2, cell - 2);
+                    ctx.shadowBlur = 0;
+
+                    // Policy arrow
+                    const aIdx = bestA[key];
+                    ctx.fillStyle = `rgba(255, 255, 255, ${0.3 + norm * 0.6})`;
+                    ctx.font = `${Math.round(cell * 0.45)}px Inter`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(ARROW_CHARS[aIdx], (x + 0.5) * cell, (y + 0.5) * cell);
+                }
+            }
+        }
+    }
+
+    // Ring boundary
+    ctx.beginPath();
+    ctx.arc((CENTER + 0.5) * cell, (CENTER + 0.5) * cell, RING_RADIUS * cell, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(139, 92, 246, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+}
+
+// ─────────────────────────────────────────────────────────────
+// 9 MINI-GRIDS (simultaneous animation)
+// ─────────────────────────────────────────────────────────────
+
+function animateMiniGrids(simulations) {
+    const container = document.getElementById('mini-grids');
+    const placeholder = document.getElementById('mini-placeholder');
+    const template = document.getElementById('mini-grid-template');
+
+    container.innerHTML = '';
+    placeholder.classList.add('hidden');
+
+    const canvases = [];
+    const labels = [];
+    const results = [];
+
+    for (let i = 0; i < simulations.length; i++) {
+        const clone = template.content.cloneNode(true);
+        const cv = clone.querySelector('.mini-canvas');
+        const lbl = clone.querySelector('.mini-label');
+        const res = clone.querySelector('.mini-result');
+        const firstFrame = simulations[i][0];
+        lbl.textContent = `#${i+1} (${firstFrame.ax},${firstFrame.ay})v(${firstFrame.ox},${firstFrame.oy})`;
+        container.appendChild(clone);
+        canvases.push(container.children[container.children.length - 1].querySelector('.mini-canvas'));
+        labels.push(container.children[container.children.length - 1].querySelector('.mini-label'));
+        results.push(container.children[container.children.length - 1].querySelector('.mini-result'));
+    }
+
+    // Find max frame count
+    const maxFrames = Math.max(...simulations.map(s => s.length));
+    let frame = 0;
+
+    function tick() {
+        for (let i = 0; i < simulations.length; i++) {
+            const sim = simulations[i];
+            const f = Math.min(frame, sim.length - 1);
+            const d = sim[f];
+            const ctx = canvases[i].getContext('2d');
+            drawFrame(ctx, 180, d.ax, d.ay, d.ox, d.oy, d.event);
+
+            // Show result badge on last frame
+            if (f === sim.length - 1 && !results[i].classList.contains('shown')) {
+                results[i].classList.remove('hidden');
+                results[i].classList.add('shown');
+                if (d.event === 'win') {
+                    results[i].textContent = '✓ WIN';
+                    results[i].style.background = 'rgba(34,197,94,0.3)';
+                    results[i].style.color = '#4ade80';
+                } else if (d.event === 'fall') {
+                    results[i].textContent = '✗ FELL';
+                    results[i].style.background = 'rgba(239,68,68,0.3)';
+                    results[i].style.color = '#f87171';
+                } else {
+                    results[i].textContent = '— DRAW';
+                    results[i].style.background = 'rgba(148,163,184,0.2)';
+                    results[i].style.color = '#94a3b8';
+                }
+            }
+        }
+        frame++;
+        if (frame < maxFrames) {
+            setTimeout(tick, 200);
+        }
+    }
+    tick();
+}
+
+// ─────────────────────────────────────────────────────────────
+// PERSISTENCE (Firebase or localStorage fallback)
+// ─────────────────────────────────────────────────────────────
+
+function getLocalModels() {
+    try { return JSON.parse(localStorage.getItem('arcane_models') || '[]'); }
+    catch { return []; }
+}
+function setLocalModels(models) {
+    localStorage.setItem('arcane_models', JSON.stringify(models));
+}
+
+async function saveModel() {
+    const name = document.getElementById('model-name').value.trim() || 'Unnamed Golem';
+    if (!currentQTable) return alert('No Q-table to save. Train a golem first!');
+
+    const record = {
+        name,
+        userId,
+        timestamp: new Date().toISOString(),
+        params: {
+            push: document.getElementById('slider-push').value,
+            fall: document.getElementById('slider-fall').value,
+            center: document.getElementById('slider-center').value,
+            step: document.getElementById('slider-step').value,
+            episodes: document.getElementById('slider-episodes').value,
+        },
+        qTableSize: Object.keys(currentQTable).length,
+        q_table: currentQTable,
+    };
+
+    if (firebaseReady) {
+        try {
+            await db.collection(FIREBASE_COLLECTION).add(record);
+        } catch (e) {
+            console.error('Firebase save error, falling back to local:', e);
+            const models = getLocalModels();
+            record.id = 'local_' + Date.now();
+            models.push(record);
+            setLocalModels(models);
+        }
+    } else {
+        const models = getLocalModels();
+        record.id = 'local_' + Date.now();
+        models.push(record);
+        setLocalModels(models);
+    }
+
+    document.getElementById('model-name').value = '';
+    alert(`"${name}" saved! ✨`);
+    refreshModelLists();
+}
+
+async function loadArchives() {
+    if (!firebaseReady) return;
+    // Could be called to pre-load
+}
+
+async function getAllModels() {
+    let models = [];
+
+    if (firebaseReady) {
+        try {
+            const snap = await db.collection(FIREBASE_COLLECTION).orderBy('timestamp', 'desc').get();
+            snap.forEach(doc => { models.push({ id: doc.id, ...doc.data() }); });
+        } catch (e) {
+            console.warn('Firebase read failed:', e);
+        }
+    }
+
+    // Merge local models
+    const local = getLocalModels();
+    models = [...models, ...local];
+    return models;
+}
+
+async function refreshModelLists() {
+    const models = await getAllModels();
+
+    // Archives tab
+    const archivesEl = document.getElementById('archives-list');
+    if (models.length === 0) {
+        archivesEl.innerHTML = '<p class="text-slate-500 text-sm col-span-2 text-center py-8">No models saved yet.</p>';
+    } else {
+        archivesEl.innerHTML = models.map(m => `
+            <div class="glass-card rounded-xl p-4">
+                <h3 class="font-cinzel text-purple-200 font-bold">${esc(m.name)}</h3>
+                <p class="text-xs text-slate-400 mt-1">by ${esc(m.userId)} · ${new Date(m.timestamp).toLocaleDateString()}</p>
+                <p class="text-xs text-slate-500 mt-0.5">${m.qTableSize || '?'} states · Ep: ${m.params?.episodes || '?'}</p>
+                <button onclick="loadModel('${m.id}')" class="btn-secondary mt-3 w-full py-1.5 rounded-lg text-xs text-purple-200">Load & Visualise</button>
+            </div>
+        `).join('');
+    }
+
+    // PvP lists
+    renderPvPList('pvp-list-a', models, 'A');
+    renderPvPList('pvp-list-b', models, 'B');
+}
+
+function renderPvPList(containerId, models, side) {
+    const el = document.getElementById(containerId);
+    if (models.length === 0) {
+        el.innerHTML = '<p class="text-slate-500 text-sm">No saved models.</p>';
+        return;
+    }
+    el.innerHTML = models.map(m => `
+        <div class="model-card glass-card rounded-lg p-3 border border-transparent text-sm ${
+            (side === 'A' && pvpSelA === m.id) || (side === 'B' && pvpSelB === m.id) ? 'selected' : ''
+        }" onclick="selectPvP('${side}', '${m.id}')">
+            <span class="text-purple-200 font-medium">${esc(m.name)}</span>
+            <span class="text-slate-500 text-xs ml-2">by ${esc(m.userId)}</span>
+        </div>
+    `).join('');
+}
+
+function selectPvP(side, id) {
+    if (side === 'A') pvpSelA = id;
+    else pvpSelB = id;
+    refreshModelLists();
+    document.getElementById('btn-pvp').disabled = !(pvpSelA && pvpSelB);
+}
+
+async function loadModel(id) {
+    const models = await getAllModels();
+    const m = models.find(x => x.id === id);
+    if (!m) return alert('Model not found.');
+    currentQTable = m.q_table;
+
+    // Switch to train tab, render heatmap, run showcase
+    switchTab('train');
+    renderHeatmap(m.q_table);
+    document.getElementById('stats-bar').classList.remove('hidden');
+    document.getElementById('stat-states').textContent = Object.keys(m.q_table).length;
+    document.getElementById('stat-winrate').textContent = '—';
+    document.getElementById('stat-epsilon').textContent = '—';
+
+    // Run simulations
+    const simRes = await fetch('/api/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ q_table: m.q_table }),
+    });
+    const simData = await simRes.json();
+    animateMiniGrids(simData.simulations);
+}
+
+// ─────────────────────────────────────────────────────────────
+// PVP
+// ─────────────────────────────────────────────────────────────
+
+async function startPvP() {
+    if (!pvpSelA || !pvpSelB) return;
+    const models = await getAllModels();
+    const mA = models.find(x => x.id === pvpSelA);
+    const mB = models.find(x => x.id === pvpSelB);
+    if (!mA || !mB) return alert('Could not load selected models.');
+
+    document.getElementById('btn-pvp').disabled = true;
+    document.getElementById('pvp-result').classList.add('hidden');
+
+    const res = await fetch('/api/pvp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ q_table_a: mA.q_table, q_table_b: mB.q_table }),
+    });
+    const data = await res.json();
+    animatePvP(data.frames, mA.name, mB.name);
+}
+
+function animatePvP(frames, nameA, nameB) {
+    const canvas = document.getElementById('pvp-canvas');
+    const ctx = canvas.getContext('2d');
+    let i = 0;
+
+    function tick() {
+        const f = frames[i];
+        if (!f || (!('ax' in f))) {
+            // Last frame is the winner announcement
+            const resultEl = document.getElementById('pvp-result');
+            resultEl.classList.remove('hidden');
+            if (f && f.winner === 'agent') {
+                resultEl.textContent = `🏆 ${nameA} wins!`;
+                resultEl.style.color = '#a78bfa';
+            } else if (f && f.winner === 'opponent') {
+                resultEl.textContent = `🏆 ${nameB} wins!`;
+                resultEl.style.color = '#f87171';
+            } else {
+                resultEl.textContent = '🤝 Draw!';
+                resultEl.style.color = '#94a3b8';
+            }
+            document.getElementById('btn-pvp').disabled = false;
+            return;
+        }
+        drawFrame(ctx, 490, f.ax, f.ay, f.ox, f.oy, f.event || '');
+        i++;
+        setTimeout(tick, 250);
+    }
+    tick();
+}
+
+// ─────────────────────────────────────────────────────────────
+// UTILITY
+// ─────────────────────────────────────────────────────────────
+function esc(s) {
+    const el = document.createElement('span');
+    el.textContent = s || '';
+    return el.innerHTML;
+}
+
+// Initial render of heatmap (empty)
+(function() {
+    const canvas = document.getElementById('heatmap-canvas');
+    const ctx = canvas.getContext('2d');
+    const size = canvas.width, cell = size / GRID;
+    for (let x = 0; x < GRID; x++) {
+        for (let y = 0; y < GRID; y++) {
+            ctx.fillStyle = isInsideRing(x, y) ? '#1a1a3e' : '#0a0a1a';
+            ctx.fillRect(x*cell+1, y*cell+1, cell-2, cell-2);
+        }
+    }
+    ctx.beginPath();
+    ctx.arc((CENTER+0.5)*cell, (CENTER+0.5)*cell, RING_RADIUS*cell, 0, Math.PI*2);
+    ctx.strokeStyle = 'rgba(139,92,246,0.25)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+})();
+
+// Load model lists on startup
+refreshModelLists();
+</script>
+</body>
+</html>
