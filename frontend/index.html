@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Arcane Arena — Train reinforcement learning bumper bots and pit them against each other in a magical battle ring.">
+    <title>Arcane Arena — RL Bumper Bots</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header id="main-header">
+        <div class="header-glow"></div>
+        <h1>✦ Arcane Arena ✦</h1>
+        <p class="subtitle">Reinforcement Learning Bumper Bots</p>
+    </header>
+
+    <main id="app-main">
+        <!-- Arena Canvas -->
+        <section class="arena-section">
+            <div class="canvas-wrapper" id="canvas-wrapper">
+                <canvas id="arena-canvas" width="600" height="600"></canvas>
+                <div class="match-overlay" id="match-overlay">
+                    <span id="overlay-text"></span>
+                </div>
+            </div>
+            <div class="arena-status" id="arena-status">
+                <span id="status-left" class="bot-label bot1-color">Arcane Bot</span>
+                <span id="status-center">Idle</span>
+                <span id="status-right" class="bot-label bot2-color">Opponent</span>
+            </div>
+        </section>
+
+        <!-- Controls Panel -->
+        <aside class="controls-panel" id="controls-panel">
+            <!-- Tabs -->
+            <nav class="tabs" id="tabs-nav">
+                <button class="tab active" data-tab="train" id="tab-train">🧙 Train</button>
+                <button class="tab" data-tab="test" id="tab-test">⚔️ Test</button>
+                <button class="tab" data-tab="pvp" id="tab-pvp">🏆 PvP</button>
+            </nav>
+
+            <!-- ═══════ TRAIN TAB ═══════ -->
+            <div class="tab-content active" id="panel-train">
+                <h2 class="section-title">⚗️ Reward Alchemy</h2>
+                <div class="slider-group" id="reward-sliders">
+                    <div class="slider-row">
+                        <label>Win Bonus</label>
+                        <input type="range" min="0" max="2" step="0.1" value="1.0" id="slider-win_bonus">
+                        <span class="slider-val" id="val-win_bonus">1.0</span>
+                    </div>
+                    <div class="slider-row">
+                        <label>Survival</label>
+                        <input type="range" min="0" max="2" step="0.1" value="0.1" id="slider-survival">
+                        <span class="slider-val" id="val-survival">0.1</span>
+                    </div>
+                    <div class="slider-row">
+                        <label>Aggression</label>
+                        <input type="range" min="0" max="2" step="0.1" value="0.3" id="slider-aggression">
+                        <span class="slider-val" id="val-aggression">0.3</span>
+                    </div>
+                    <div class="slider-row">
+                        <label>Center Control</label>
+                        <input type="range" min="0" max="2" step="0.1" value="0.2" id="slider-center_control">
+                        <span class="slider-val" id="val-center_control">0.2</span>
+                    </div>
+                    <div class="slider-row">
+                        <label>Hit Reward</label>
+                        <input type="range" min="0" max="2" step="0.1" value="0.5" id="slider-hit_reward">
+                        <span class="slider-val" id="val-hit_reward">0.5</span>
+                    </div>
+                    <div class="slider-row">
+                        <label>Edge Penalty</label>
+                        <input type="range" min="0" max="2" step="0.1" value="0.3" id="slider-edge_penalty">
+                        <span class="slider-val" id="val-edge_penalty">0.3</span>
+                    </div>
+                </div>
+
+                <h2 class="section-title">📜 Training Config</h2>
+                <div class="config-group">
+                    <div class="config-row">
+                        <label for="input-episodes">Episodes</label>
+                        <input type="number" id="input-episodes" value="1000" min="100" max="10000" step="100">
+                    </div>
+                    <div class="config-row">
+                        <label for="input-lr">Learning Rate</label>
+                        <input type="number" id="input-lr" value="0.001" min="0.0001" max="0.1" step="0.0001">
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" id="btn-train">▶ Begin Training</button>
+                <button class="btn btn-danger hidden" id="btn-stop-train">⏹ Stop Training</button>
+
+                <div class="progress-container hidden" id="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <div class="progress-text" id="progress-text">0%</div>
+                </div>
+
+                <div class="stats-grid hidden" id="stats-grid">
+                    <div class="stat-card">
+                        <span class="stat-label">Win Rate</span>
+                        <span class="stat-value" id="stat-winrate">0%</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Episode</span>
+                        <span class="stat-value" id="stat-episode">0</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Total Wins</span>
+                        <span class="stat-value" id="stat-wins">0</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Avg Reward</span>
+                        <span class="stat-value" id="stat-reward">0</span>
+                    </div>
+                </div>
+
+                <div class="action-row hidden" id="post-train-actions">
+                    <button class="btn btn-accent" id="btn-save">💾 Save Bot</button>
+                </div>
+            </div>
+
+            <!-- ═══════ TEST TAB ═══════ -->
+            <div class="tab-content" id="panel-test">
+                <h2 class="section-title">⚔️ Test Arena</h2>
+                <p class="panel-desc">Pit your trained bot against the default heuristic opponent.</p>
+                <div class="config-row">
+                    <label for="test-speed">Playback Speed</label>
+                    <select id="test-speed">
+                        <option value="0.5">0.5×</option>
+                        <option value="1" selected>1×</option>
+                        <option value="2">2×</option>
+                        <option value="4">4×</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary" id="btn-test">⚔️ Start Test Match</button>
+                <div class="match-result-box hidden" id="test-result">
+                    <span id="test-result-text"></span>
+                </div>
+            </div>
+
+            <!-- ═══════ PVP TAB ═══════ -->
+            <div class="tab-content" id="panel-pvp">
+                <h2 class="section-title">🏆 Champion's Duel</h2>
+                <p class="panel-desc">Load two saved bots and watch them battle!</p>
+
+                <div class="pvp-slot">
+                    <h3 class="bot1-color">Bot 1 (Blue)</h3>
+                    <select id="pvp-bot1-select" class="pvp-select"><option value="">-- select --</option></select>
+                    <span class="or-text">or</span>
+                    <label class="btn btn-small btn-outline" id="pvp-bot1-upload-label">
+                        📂 Upload JSON
+                        <input type="file" accept=".json" id="pvp-bot1-upload" class="file-input">
+                    </label>
+                    <div class="pvp-bot-status" id="pvp-bot1-status">No bot loaded</div>
+                </div>
+
+                <div class="pvp-slot">
+                    <h3 class="bot2-color">Bot 2 (Red)</h3>
+                    <select id="pvp-bot2-select" class="pvp-select"><option value="">-- select --</option></select>
+                    <span class="or-text">or</span>
+                    <label class="btn btn-small btn-outline" id="pvp-bot2-upload-label">
+                        📂 Upload JSON
+                        <input type="file" accept=".json" id="pvp-bot2-upload" class="file-input">
+                    </label>
+                    <div class="pvp-bot-status" id="pvp-bot2-status">No bot loaded</div>
+                </div>
+
+                <div class="config-row">
+                    <label for="pvp-rounds">Best of</label>
+                    <select id="pvp-rounds">
+                        <option value="1">1</option>
+                        <option value="3" selected>3</option>
+                        <option value="5">5</option>
+                        <option value="7">7</option>
+                    </select>
+                </div>
+                <div class="config-row">
+                    <label for="pvp-speed">Playback Speed</label>
+                    <select id="pvp-speed">
+                        <option value="0.5">0.5×</option>
+                        <option value="1" selected>1×</option>
+                        <option value="2">2×</option>
+                        <option value="4">4×</option>
+                    </select>
+                </div>
+
+                <button class="btn btn-primary" id="btn-pvp">🏆 Begin Duel!</button>
+                <div class="pvp-scoreboard hidden" id="pvp-scoreboard">
+                    <span class="pvp-score bot1-color" id="pvp-score1">0</span>
+                    <span class="pvp-vs">VS</span>
+                    <span class="pvp-score bot2-color" id="pvp-score2">0</span>
+                </div>
+                <div class="match-result-box hidden" id="pvp-result">
+                    <span id="pvp-result-text"></span>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Save Modal -->
+    <div class="modal-backdrop hidden" id="save-modal">
+        <div class="modal">
+            <h2>💾 Name Your Champion</h2>
+            <input type="text" id="save-name-input" placeholder="e.g. Aggressive Mage" maxlength="40">
+            <div class="modal-actions">
+                <button class="btn btn-accent" id="btn-save-confirm">Save</button>
+                <button class="btn btn-outline" id="btn-save-cancel">Cancel</button>
+            </div>
+            <label class="btn btn-small btn-outline" style="margin-top:8px" id="btn-download">
+                📥 Download as JSON instead
+            </label>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast-container"></div>
+
+    <script src="/static/js/connection.js"></script>
+    <script src="/static/js/renderer.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
