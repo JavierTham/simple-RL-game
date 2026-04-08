@@ -99,6 +99,21 @@ class PhysicsWorld:
         ], dtype=np.float64)
 
     def step(self, action1: int, action2: int):
+        # ── Gravitational attraction ────────────────────
+        # Constant gentle pull toward opponent (0.15 vs 1.0 from actions)
+        # Ensures bots always converge; "stay" = drift toward opponent
+        gx = self.bot2.x - self.bot1.x
+        gy = self.bot2.y - self.bot1.y
+        gd2 = gx * gx + gy * gy
+        if gd2 > 1.0:
+            gd = math.sqrt(gd2)
+            gf = 0.15  # gravity strength
+            gnx, gny = gx / gd, gy / gd
+            self.bot1.vx += gnx * gf
+            self.bot1.vy += gny * gf
+            self.bot2.vx -= gnx * gf
+            self.bot2.vy -= gny * gf
+
         self.bot1.apply_action(action1)
         self.bot2.apply_action(action2)
         self.bot1.update()
@@ -129,18 +144,50 @@ class PhysicsWorld:
         min_dist = self.bot1.radius + self.bot2.radius
         if dist_sq < min_dist * min_dist and dist_sq > 1e-12:
             dist = math.sqrt(dist_sq)
-            nx, ny = dx / dist, dy / dist
+            nx, ny = dx / dist, dy / dist  # normal: bot1 → bot2
+
             dvx = self.bot1.vx - self.bot2.vx
             dvy = self.bot1.vy - self.bot2.vy
-            dvn = dvx * nx + dvy * ny
+            dvn = dvx * nx + dvy * ny      # relative closing speed
+
             if dvn > 0:
-                boost = 1.0 + 0.5 * min(dvn / MAX_SPEED, 1.0)
+                # ── Charging momentum bonus ─────────────────
+                # Base boost from closing speed (unchanged from before)
+                base_boost = 1.0 + 0.5 * min(dvn / MAX_SPEED, 1.0)
+
+                # Charge bonus: attacker's own speed toward opponent (quadratic)
+                # Slow approach = modest bonus, full-speed charge = devastating
+                v1_approach = max(0.0, self.bot1.vx * nx + self.bot1.vy * ny)
+                v2_approach = max(0.0, -(self.bot2.vx * nx + self.bot2.vy * ny))
+                attacker_speed = max(v1_approach, v2_approach)
+                charge_ratio = min(attacker_speed / MAX_SPEED, 1.0)
+                charge_bonus = 0.8 * charge_ratio * charge_ratio  # quadratic ramp
+
+                boost = base_boost + charge_bonus
                 impulse_x = dvn * nx * boost
                 impulse_y = dvn * ny * boost
-                self.bot1.vx -= impulse_x
-                self.bot1.vy -= impulse_y
-                self.bot2.vx += impulse_x
-                self.bot2.vy += impulse_y
+
+                # ── Asymmetric knockback ────────────────────
+                # Reuses v1_approach / v2_approach from charge calculation
+                total_approach = v1_approach + v2_approach
+
+                if total_approach > 0.1:
+                    r = v1_approach / total_approach  # 0→1, higher = bot1 is attacker
+                else:
+                    r = 0.5
+
+                # Attacker barely bounces (0.3×), defender gets launched (1.7×)
+                KEEP = 0.3   # attacker's knockback multiplier
+                AMP  = 1.7   # defender's knockback multiplier
+                bot1_kb = KEEP * r + AMP * (1.0 - r)
+                bot2_kb = AMP  * r + KEEP * (1.0 - r)
+
+                self.bot1.vx -= impulse_x * bot1_kb
+                self.bot1.vy -= impulse_y * bot1_kb
+                self.bot2.vx += impulse_x * bot2_kb
+                self.bot2.vy += impulse_y * bot2_kb
+
+            # Separate overlapping bots
             overlap = min_dist - dist
             half = overlap * 0.5
             self.bot1.x -= half * nx

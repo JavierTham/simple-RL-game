@@ -121,6 +121,17 @@ async def websocket_endpoint(ws: WebSocket):
                 else:
                     await ws.send_json({'type': 'error', 'msg': f'Bot "{name}" not found'})
 
+            elif t == 'delete_bot':
+                name = data.get('name')
+                fp = os.path.join(SAVED_BOTS_DIR, f"{name}.json")
+                if os.path.exists(fp):
+                    os.remove(fp)
+                    bots = [f[:-5] for f in os.listdir(SAVED_BOTS_DIR) if f.endswith('.json')]
+                    await ws.send_json({'type': 'bot_deleted', 'name': name})
+                    await ws.send_json({'type': 'bot_list', 'bots': bots})
+                else:
+                    await ws.send_json({'type': 'error', 'msg': f'Bot "{name}" not found'})
+
     except WebSocketDisconnect:
         pass
 

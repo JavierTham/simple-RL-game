@@ -1,20 +1,26 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Arcane Arena — Train reinforcement learning bumper bots and pit them against each other in a magical battle ring.">
+    <meta name="description"
+        content="Arcane Arena — Train reinforcement learning bumper bots and pit them against each other in a magical battle ring.">
     <title>Arcane Arena — RL Bumper Bots</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Inter:wght@300;400;500;600&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
+
 <body>
     <header id="main-header">
         <div class="header-glow"></div>
         <h1>✦ Arcane Arena ✦</h1>
         <p class="subtitle">Reinforcement Learning Bumper Bots</p>
+        <button id="btn-audio-toggle" class="btn-audio" title="Toggle Sound">🔊</button>
     </header>
 
     <main id="app-main">
@@ -40,11 +46,18 @@
                 <button class="tab active" data-tab="train" id="tab-train">🧙 Train</button>
                 <button class="tab" data-tab="test" id="tab-test">⚔️ Test</button>
                 <button class="tab" data-tab="pvp" id="tab-pvp">🏆 PvP</button>
+                <button class="tab" data-tab="tourney" id="tab-tourney">👑 Tourney</button>
             </nav>
 
             <!-- ═══════ TRAIN TAB ═══════ -->
             <div class="tab-content active" id="panel-train">
                 <h2 class="section-title">⚗️ Reward Alchemy</h2>
+                <div class="preset-bar" id="preset-bar">
+                    <button class="preset-btn active" data-preset="balanced" id="preset-balanced">⚖️ Balanced</button>
+                    <button class="preset-btn" data-preset="aggressive" id="preset-aggressive">🗡️ Aggressive</button>
+                    <button class="preset-btn" data-preset="defensive" id="preset-defensive">🛡️ Defensive</button>
+                    <button class="preset-btn" data-preset="assassin" id="preset-assassin">🎯 Assassin</button>
+                </div>
                 <div class="slider-group" id="reward-sliders">
                     <div class="slider-row">
                         <label>Win Bonus</label>
@@ -119,6 +132,14 @@
                     </div>
                 </div>
 
+                <div class="chart-container hidden" id="chart-container">
+                    <div class="chart-legend">
+                        <span style="color:#66bb6a; font-size:.75rem;">■ Win Rate</span>
+                        <span style="color:rgba(224,64,251,0.8); font-size:.75rem; margin-left:12px;">■ Reward</span>
+                    </div>
+                    <canvas id="training-chart" width="400" height="120"></canvas>
+                </div>
+
                 <div class="action-row hidden" id="post-train-actions">
                     <button class="btn btn-accent" id="btn-save">💾 Save Bot</button>
                 </div>
@@ -150,7 +171,9 @@
 
                 <div class="pvp-slot">
                     <h3 class="bot1-color">Bot 1 (Blue)</h3>
-                    <select id="pvp-bot1-select" class="pvp-select"><option value="">-- select --</option></select>
+                    <select id="pvp-bot1-select" class="pvp-select">
+                        <option value="">-- select --</option>
+                    </select>
                     <span class="or-text">or</span>
                     <label class="btn btn-small btn-outline" id="pvp-bot1-upload-label">
                         📂 Upload JSON
@@ -161,7 +184,9 @@
 
                 <div class="pvp-slot">
                     <h3 class="bot2-color">Bot 2 (Red)</h3>
-                    <select id="pvp-bot2-select" class="pvp-select"><option value="">-- select --</option></select>
+                    <select id="pvp-bot2-select" class="pvp-select">
+                        <option value="">-- select --</option>
+                    </select>
                     <span class="or-text">or</span>
                     <label class="btn btn-small btn-outline" id="pvp-bot2-upload-label">
                         📂 Upload JSON
@@ -198,6 +223,80 @@
                 <div class="match-result-box hidden" id="pvp-result">
                     <span id="pvp-result-text"></span>
                 </div>
+
+                <div class="bot-manager" id="bot-manager">
+                    <h3 class="section-title" style="font-size:.85rem; margin-top:16px;">📋 Saved Bots</h3>
+                    <div class="bot-manager-list" id="bot-manager-list"></div>
+                </div>
+            </div>
+
+            <!-- ═══════ TOURNEY TAB ═══════ -->
+            <div class="tab-content" id="panel-tourney">
+                <h2 class="section-title">👑 The Grand Tournament</h2>
+                <p class="panel-desc">Select 4 saved bots for a single-elimination bracket.</p>
+
+                <div class="tourney-selectors">
+                    <select id="tourney-bot1" class="pvp-select">
+                        <option value="">-- Bot 1 --</option>
+                    </select>
+                    <select id="tourney-bot2" class="pvp-select">
+                        <option value="">-- Bot 2 --</option>
+                    </select>
+                    <select id="tourney-bot3" class="pvp-select">
+                        <option value="">-- Bot 3 --</option>
+                    </select>
+                    <select id="tourney-bot4" class="pvp-select">
+                        <option value="">-- Bot 4 --</option>
+                    </select>
+                </div>
+
+                <div class="config-row">
+                    <label for="tourney-rounds">Best of per Match</label>
+                    <select id="tourney-rounds">
+                        <option value="1">1</option>
+                        <option value="3" selected>3</option>
+                        <option value="5">5</option>
+                    </select>
+                </div>
+
+                <div class="config-row">
+                    <label for="tourney-speed">Playback Speed</label>
+                    <select id="tourney-speed">
+                        <option value="1">1×</option>
+                        <option value="2">2×</option>
+                        <option value="4" selected>4×</option>
+                        <option value="8">8×</option>
+                    </select>
+                </div>
+
+                <button class="btn btn-primary" id="btn-start-tourney">👑 Start Tournament!</button>
+
+                <!-- Bracket UI -->
+                <div class="tourney-bracket hidden" id="tourney-bracket">
+                    <div class="bracket-round semis">
+                        <div class="bracket-match" id="tm-sf1">
+                            <div class="b-slot" id="sf1-p1">Bot 1</div>
+                            <div class="b-slot" id="sf1-p2">Bot 2</div>
+                        </div>
+                        <div class="bracket-match" id="tm-sf2">
+                            <div class="b-slot" id="sf2-p1">Bot 3</div>
+                            <div class="b-slot" id="sf2-p2">Bot 4</div>
+                        </div>
+                    </div>
+                    <div class="bracket-round finals">
+                        <div class="bracket-match" id="tm-fin">
+                            <div class="b-slot" id="fin-p1">TBD</div>
+                            <div class="b-slot" id="fin-p2">TBD</div>
+                        </div>
+                    </div>
+                    <div class="bracket-round champ">
+                        <div class="b-champion" id="tourney-champ">🏆 ? 🏆</div>
+                    </div>
+                </div>
+
+                <div class="match-result-box hidden" id="tourney-status-box">
+                    <span id="tourney-status-text"></span>
+                </div>
             </div>
         </aside>
     </main>
@@ -220,8 +319,11 @@
     <!-- Toast -->
     <div id="toast-container"></div>
 
+    <script src="/static/js/audio.js"></script>
+    <script src="/static/js/chart.js"></script>
     <script src="/static/js/connection.js"></script>
     <script src="/static/js/renderer.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
+
 </html>

@@ -2,6 +2,8 @@
 DQN Agent with epsilon-greedy exploration and target network.
 Also includes a heuristic DefaultAgent for training opponent.
 """
+import math
+import random
 import numpy as np
 from neural_net import QNetwork, ReplayBuffer
 

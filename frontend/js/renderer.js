@@ -23,6 +23,11 @@ class Renderer {
         this.bot2Color = '#e040fb';
         this.goldColor = '#c9a84c';
 
+        // Flash effect
+        this.flashIntensity = 0;
+        this.flashX = 0;
+        this.flashY = 0;
+
         // Ambient floating particles
         this.ambientParticles = [];
         for (let i = 0; i < 40; i++) {
@@ -83,8 +88,35 @@ class Renderer {
             const mx = (bots[0].x + bots[1].x) / 2;
             const my = (bots[0].y + bots[1].y) / 2;
             this._spawnCollisionParticles(mx, my);
+            this.flashIntensity = 1.0;
+            this.flashX = this.wx(mx);
+            this.flashY = this.wy(my);
+
+            if (window.audio) window.audio.playCollision();
+
+            // Trigger screen shake
+            const wrapper = this.canvas.parentElement;
+            if (wrapper) {
+                wrapper.classList.remove('shake');
+                void wrapper.offsetWidth; // trigger reflow
+                wrapper.classList.add('shake');
+            }
         }
         this._updateAndDrawParticles();
+
+        // Flash overlay
+        if (this.flashIntensity > 0) {
+            const ctx = this.ctx;
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            const grad = ctx.createRadialGradient(this.flashX, this.flashY, 0, this.flashX, this.flashY, 200);
+            grad.addColorStop(0, `rgba(255, 255, 255, ${this.flashIntensity * 0.6})`);
+            grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, this.W, this.H);
+            ctx.restore();
+            this.flashIntensity -= 0.04;
+        }
 
         // Bots
         this._drawBot(bots[0], this.bot1Color, data.actions ? data.actions[0] : -1);
@@ -185,8 +217,8 @@ class Renderer {
 
         // Thrust indicator
         const forces = [
-            null, [0,-1],[.707,-.707],[1,0],[.707,.707],
-            [0,1],[-.707,.707],[-1,0],[-.707,-.707]
+            null, [0, -1], [.707, -.707], [1, 0], [.707, .707],
+            [0, 1], [-.707, .707], [-1, 0], [-.707, -.707]
         ];
         if (typeof action === 'number' && action > 0 && action <= 8 && forces[action]) {
             const f = forces[action];
