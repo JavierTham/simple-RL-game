@@ -1,0 +1,240 @@
+"""
+Training manager: runs DQN training with experience replay.
+Reward shaping designed for the charge/dash mechanic.
+
+Key reward philosophy:
+- Terminal rewards (win/loss) are DOMINANT
+- Per-step shaping is minimal — just enough to guide early exploration
+- Charge-in-range and dash-hit have strong rewards to make the sequence discoverable
+"""
+import math
+import numpy as np
+from physics import (PhysicsWorld, ARENA_RADIUS, MAX_SPEED, MAX_STEPS,
+                     DASH_MAX_SPEED, DASH_COOLDOWN_STEPS)
+from agent import DQNAgent, DefaultAgent
+
+TRAIN_EVERY = 8      # train every N environment steps (halves training overhead)
+TRAIN_MAX_STEPS = 150 # shorter episodes for faster training + fewer draws
+_ARENA_DIAM = 2 * ARENA_RADIUS
+
+
+class Trainer:
+    def __init__(self):
+        self.agent: DQNAgent | None = None
+        self.world = PhysicsWorld()
+        self.is_training = False
+        self.training_stats: list[dict] = []
+
+    # ── reward shaping ──────────────────────────────────────
+    @staticmethod
+    def compute_reward(world: PhysicsWorld, bot_idx: int,
+                       done: bool, winner, collision: bool,
+                       w: dict) -> float:
+        bot = world.bot1 if bot_idx == 0 else world.bot2
+        opp = world.bot2 if bot_idx == 0 else world.bot1
+        my_knock = world.bot1_knock if bot_idx == 0 else world.bot2_knock
+        r = 0.0
+
+        # ── Terminal signals (DOMINANT — these are what matter) ──
+        if done:
+            if winner == bot_idx:
+                r += w.get('win_bonus', 1.0) * 15.0   # big win bonus
+            elif winner == -1:
+                r -= 5.0              # strong draw penalty — pushes toward decisive play
+            else:
+                r -= 12.0             # loss penalty
+
+        # ── Spatial calculations ──
+        dx = opp.x - bot.x
+        dy = opp.y - bot.y
+        dist_opp = math.sqrt(dx * dx + dy * dy)
+        dc = math.sqrt(bot.x * bot.x + bot.y * bot.y)
+        edge = dc / ARENA_RADIUS
+        dist_ratio = dist_opp / _ARENA_DIAM   # 0=touching, 1=max apart
+        time_frac = world.step_count / TRAIN_MAX_STEPS
+
+        # ── Per-step: time pressure (small, escalating) ──
+        if not done:
+            r -= 0.03 * (0.5 + 1.5 * time_frac)
+
+        # ── Approach: reward getting closer to opponent ──
+        my_approach = 0.0
+        if dist_opp > 1e-6:
+            my_approach = (bot.vx * dx + bot.vy * dy) / dist_opp
+            if my_approach > 0 and bot.charge_level < 0.05:
+                r += 0.04 * min(my_approach / MAX_SPEED, 1.0)
+
+        # ── CHARGE reward: strong signal to learn charging when in range ──
+        if bot.charge_level > 0 and dist_ratio < 0.35:
+            # Reward is proportional to charge level AND proximity
+            # This is the KEY reward that teaches the charge→dash sequence
+            closeness = 1.0 - dist_ratio / 0.35
+            r += w.get('charge_reward', 1.0) * 0.25 * bot.charge_level * closeness
+
+        # ── DASH HIT: the big payoff for the charge→dash→hit sequence ──
+        if collision:
+            if bot.is_dashing and bot.last_dash_charge > 0:
+                # Massive reward — this is what wins games
+                charge_q = bot.last_dash_charge
+                impulse = min(my_knock / DASH_MAX_SPEED, 2.0)
+                r += w.get('hit_reward', 1.0) * (2.0 + 3.0 * charge_q) * (0.5 + 0.5 * impulse)
+            elif opp.is_dashing:
+                # Got dash-hit — penalty to learn dodging
+                r -= w.get('hit_reward', 1.0) * 0.5
+            else:
+                # Normal collision — small engagement reward
+                if my_approach > 0:
+                    r += 0.15 * min(my_approach / MAX_SPEED, 1.0)
+
+        # ── Opponent near edge: bridges "hit" → "win" ──
+        opp_dc = math.sqrt(opp.x * opp.x + opp.y * opp.y)
+        opp_edge = opp_dc / ARENA_RADIUS
+        if opp_edge > 0.5:
+            excess = opp_edge - 0.5
+            r += w.get('opp_edge', 1.0) * 0.4 * excess * excess
+
+        # ── Self near edge: penalty ──
+        if edge > 0.6:
+            r -= w.get('edge_penalty', 1.0) * 0.5 * (edge - 0.6) * (edge - 0.6)
+        if edge > 0.85:
+            r -= 1.5 * (edge - 0.85) / 0.15
+
+        # ── Small center control ──
+        r += 0.008 * (1.0 - edge)
+
+        return r
+
+    # ── single episode (with DQN updates) ───────────────────
+    def run_episode(self, agent: DQNAgent, opponent, reward_weights: dict,
+                    train: bool = True, record_frames: bool = False,
+                    max_steps: int | None = None):
+        self.world.reset()
+        frames = [] if record_frames else None
+        done = False
+        winner = None
+        total_reward = 0.0
+        step_count = 0
+        step_limit = max_steps or (TRAIN_MAX_STEPS if train else MAX_STEPS)
+
+        while not done:
+            obs1 = self.world.get_observation(0)
+            obs2 = self.world.get_observation(1)
+
+            if train:
+                a1 = agent.get_action(obs1)
+            else:
+                a1 = agent.get_action_greedy(obs1)
+            a2 = opponent.get_action(obs2)
+
+            done, winner = self.world.step(a1, a2)
+            step_count += 1
+            if step_count >= step_limit and not done:
+                done = True
+                winner = -1  # Timeout = draw
+
+            r = self.compute_reward(self.world, 0, done, winner,
+                                    self.world.collision_occurred, reward_weights)
+            next_obs1 = self.world.get_observation(0)
+
+            if train:
+                agent.store(obs1, a1, r, next_obs1, done)
+                if step_count % TRAIN_EVERY == 0:
+                    agent.train_step()
+
+            total_reward += r
+
+            if record_frames:
+                fd = self.world.get_frame_data()
+                fd['actions'] = [a1, a2]
+                frames.append(fd)
+
+        if train:
+            agent.end_episode()
+
+        return {'winner': winner, 'steps': step_count,
+                'total_reward': total_reward, 'frames': frames}
+
+    # ── training loop ────────────────────────────────────────
+    def train(self, config: dict, progress_callback=None) -> dict | None:
+        num_episodes = config.get('num_episodes', 1000)
+        lr = config.get('learning_rate', 0.001)
+        rw = config.get('reward_weights', {})
+
+        self.agent = DQNAgent(
+            lr=lr,
+            gamma=0.995,           # high gamma: propagate charge rewards further back
+            epsilon_start=1.0,
+            epsilon_end=0.15,      # keep exploration high — biased exploration needs this
+            epsilon_decay=0.997,   # slower decay: more exploration time
+            batch_size=256,
+            target_update_freq=0,  # 0 = use soft updates (Polyak averaging)
+            tau=0.005,             # soft update coefficient
+        )
+        self.is_training = True
+        self.training_stats.clear()
+
+        wins, recent = 0, []
+        for ep in range(num_episodes):
+            if not self.is_training:
+                break
+
+            # Curriculum: ramp opponent strength more gently
+            progress = ep / max(num_episodes - 1, 1)
+            opp_strength = 0.2 + 0.8 * min(1.0, progress * 2.0)
+            opponent = DefaultAgent(strength=opp_strength)
+
+            result = self.run_episode(self.agent, opponent, rw, train=True)
+
+            won = result['winner'] == 0
+            if won:
+                wins += 1
+            recent.append(int(won))
+            if len(recent) > 100:
+                recent.pop(0)
+
+            stats = {
+                'episode': ep + 1,
+                'total_episodes': num_episodes,
+                'win_rate': round(sum(recent) / len(recent), 4),
+                'total_wins': wins,
+                'avg_reward': round(result['total_reward'], 4),
+                'steps': result['steps'],
+                'won': won,
+                'epsilon': round(self.agent.epsilon, 4),
+            }
+            self.training_stats.append(stats)
+            if progress_callback and (ep % 5 == 0 or ep == num_episodes - 1):
+                progress_callback(stats)
+
+        self.is_training = False
+        return self.agent.get_weights() if self.agent else None
+
+    # ── test match ───────────────────────────────────────────
+    def test_match(self, reward_weights: dict | None = None):
+        if self.agent is None:
+            return None
+        result = self.run_episode(self.agent, DefaultAgent(),
+                                  reward_weights or {},
+                                  train=False, record_frames=True)
+        return result
+
+    # ── PvP match ────────────────────────────────────────────
+    def run_match(self, w1: dict | None, w2: dict | None):
+        a1, a2 = DQNAgent(), DQNAgent()
+        if w1:
+            a1.set_weights(w1)
+        if w2:
+            a2.set_weights(w2)
+        self.world.reset()
+        frames = []
+        done, winner = False, None
+        while not done:
+            o1 = self.world.get_observation(0)
+            o2 = self.world.get_observation(1)
+            act1 = a1.get_action_greedy(o1)
+            act2 = a2.get_action_greedy(o2)
+            done, winner = self.world.step(act1, act2)
+            fd = self.world.get_frame_data()
+            fd['actions'] = [act1, act2]
+            frames.append(fd)
+        return {'winner': winner, 'steps': self.world.step_count, 'frames': frames}
