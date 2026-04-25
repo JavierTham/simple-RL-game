@@ -131,13 +131,19 @@ class Bot:
         if self.dash_cooldown > 0:
             self.dash_cooldown -= 1
 
+        # During dash flight, skip both braking branches below — _clamp_velocity
+        # already preserves dash velocity by suppressing space damping for these
+        # frames, and stamping vel *= 0.85/0.90 here would defeat that.
+        in_dash_flight = self.dash_frames_left > 0
+
         if action == 0:
             # CHARGE: accumulate power while standing still
             if self.dash_cooldown <= 0:
                 self.charge_level = min(1.0, self.charge_level + CHARGE_RATE)
             # Apply braking when charging (slow to a stop)
-            vx, vy = self.body.velocity
-            self.body.velocity = (vx * 0.85, vy * 0.85)
+            if not in_dash_flight:
+                vx, vy = self.body.velocity
+                self.body.velocity = (vx * 0.85, vy * 0.85)
             return
 
         # MOVE action (1-8) — ONLY works as a dash if charged
@@ -157,8 +163,9 @@ class Bot:
 
         # No charge or on cooldown — bot cannot move, action wasted
         # Apply braking (same as charging) so bot slows to a stop
-        vx, vy = self.body.velocity
-        self.body.velocity = (vx * 0.90, vy * 0.90)
+        if not in_dash_flight:
+            vx, vy = self.body.velocity
+            self.body.velocity = (vx * 0.90, vy * 0.90)
 
     def is_out(self) -> bool:
         x, y = self.body.position
