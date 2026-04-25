@@ -15,7 +15,6 @@ Use the `rl-game` conda env exclusively — its interpreter lives at
 Install (once):
 ```
 /home/j/miniconda3/envs/rl-game/bin/pip install -r requirements.txt
-/home/j/miniconda3/envs/rl-game/bin/pip install pymunk    # imported by physics.py but missing from requirements.txt
 ```
 
 Run the dev server (serves frontend + WebSocket at http://127.0.0.1:8000):
