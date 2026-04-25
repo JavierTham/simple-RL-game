@@ -27,7 +27,7 @@ class DQNAgent:
         self.target_net.copy_weights_from(self.q_net)
         self.target_net.eval()
 
-        self.replay = ReplayBuffer(capacity=50000)
+        self.replay = ReplayBuffer(capacity=20000)
         self.gamma = gamma
         self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
@@ -43,27 +43,25 @@ class DQNAgent:
         self._n_step_buffer = deque(maxlen=n_steps)
 
     def get_action(self, state: np.ndarray) -> int:
-        """Epsilon-greedy with state-aware exploration bias."""
+        """Epsilon-greedy exploration that respects charge-only movement."""
         if random.random() < self.epsilon:
-            dist_norm = state[11]
             my_charge = state[12]
             my_cooldown = state[14]
-            my_edge = state[8]
 
-            # Bias toward charging when near opponent
-            if my_cooldown < 0.1 and dist_norm < 0.30 and my_edge < 0.65:
-                charge_prob = 0.35 * (1.0 - dist_norm / 0.30)
-                if my_charge > 0.3:
-                    charge_prob = 0.6
-                if random.random() < charge_prob:
-                    return 0
-            elif my_charge > 0.15 and my_cooldown < 0.1:
-                if random.random() < 0.25:
-                    opp_rx, opp_ry = state[4], state[5]
-                    angle = math.atan2(opp_ry, opp_rx)
-                    return self._angle_to_action(angle)
+            # No charge = must charge (movement does nothing without charge)
+            if my_charge < 0.05 or my_cooldown > 0.05:
+                return 0  # charge
 
-            return random.randint(0, 8)
+            # Have charge: decide whether to charge more or dash
+            # Higher charge → more likely to release
+            release_prob = 0.15 + 0.6 * my_charge
+            if random.random() < release_prob:
+                # Dash toward opponent with some noise
+                opp_rx, opp_ry = state[4], state[5]
+                angle = math.atan2(opp_ry, opp_rx) + random.gauss(0, 0.4)
+                return self._angle_to_action(angle)
+            return 0  # keep charging
+
         with torch.no_grad():
             q_values = self.q_net(state.reshape(1, -1))
             return int(q_values.argmax(dim=1).item())
@@ -196,14 +194,17 @@ class DQNAgent:
 
 
 class DefaultAgent:
-    """Heuristic bot that uses the charge/dash mechanic tactically.
+    """Heuristic bot for charge-only movement.
 
-    Behavioral modes:
-    - APPROACH: Close distance toward opponent
-    - CHARGE: Stand still and build power when in striking range
-    - DASH: Release charge toward opponent (or predicted position)
-    - DODGE: Evade when opponent is charging nearby
-    - EVADE: Retreat from arena edge
+    ALL movement is charge→dash. The bot decides:
+    1. How long to charge (short for repositioning, long for attacks)
+    2. Which direction to dash
+
+    Tactical modes:
+    - ATTACK: Charge toward opponent, release at high charge
+    - REPOSITION: Short charge + dash to improve position
+    - EVADE_EDGE: Short charge + dash toward center
+    - DODGE: Short charge + dash perpendicular when opponent charges
 
     strength: 0=random, 1=full heuristic.
     """
@@ -218,14 +219,11 @@ class DefaultAgent:
         self.strength = strength
         self._circle_dir = 1 if random.random() > 0.5 else -1
         self._step = 0
-        self._charging = False
-        self._charge_target_steps = 0
-        self._charge_steps_done = 0
+        self._charge_target = 0   # how many steps to charge before releasing
+        self._dash_angle = 0.0    # direction to dash when releasing
+        self._mode = 'idle'       # current tactical mode
 
     def get_action(self, state: np.ndarray) -> int:
-        if random.random() > self.strength:
-            return random.randint(0, 8)
-
         opp_rx, opp_ry = state[4], state[5]
         my_x, my_y = state[0], state[1]
         my_edge = state[8]
@@ -237,64 +235,94 @@ class DefaultAgent:
         angle_to_opp = math.atan2(opp_ry, opp_rx)
         self._step += 1
 
-        # EVADE: too close to edge
-        if my_edge > 0.75:
-            angle = math.atan2(-my_y, -my_x)
-            return self._angle_to_action(angle)
+        # Strength check: at low strength, play a sloppy version
+        # (still charges & dashes, but with poor aim — unlike pure random
+        #  which wastes turns on uncharged move actions that do nothing)
+        if random.random() > self.strength:
+            if my_cooldown > 0.05:
+                return 0
+            if my_charge < 0.15:
+                return 0  # at least charge up
+            # Dash with poor aim (~46° deviation)
+            noise = random.gauss(0, 0.8)
+            return self._angle_to_action(angle_to_opp + noise)
 
-        # DODGE: opponent is charging and we're close
-        if opp_charge > 0.3 and dist_norm < 0.35:
-            perp_angle = angle_to_opp + self._circle_dir * self._PI / 2
-            if my_edge > 0.5:
-                ca = math.atan2(-my_y, -my_x)
-                blend = (my_edge - 0.5) * 2.0
-                perp_angle = perp_angle * (1 - blend * 0.5) + ca * blend * 0.5
-            return self._angle_to_action(perp_angle)
+        # On cooldown: can't do anything, just wait
+        if my_cooldown > 0.05:
+            return 0  # charge (will be ignored during cooldown, but that's fine)
 
-        # CHARGE: in striking range
-        if (dist_norm < 0.30 and my_cooldown <= 0 and
-                not self._charging and my_charge < 0.1):
-            charge_chance = 0.15 + 0.35 * max(0, 1.0 - dist_norm / 0.30)
-            if random.random() < charge_chance:
-                self._charging = True
-                self._charge_target_steps = random.randint(12, 36)
-                self._charge_steps_done = 0
-
-        # Continue charging
-        if self._charging:
-            self._charge_steps_done += 1
-            if self._charge_steps_done >= self._charge_target_steps:
-                self._charging = False
-                angle = angle_to_opp + random.gauss(0, 0.15)
+        # If we have charge, decide whether to release or keep charging
+        if my_charge > 0.02:
+            # URGENT: near edge — dash toward center immediately
+            if my_edge > 0.70:
+                angle = math.atan2(-my_y, -my_x)
                 return self._angle_to_action(angle)
+
+            # URGENT: opponent about to dash us and we're close
+            if self.strength > 0.75 and opp_charge > 0.4 and dist_norm < 0.30:
+                # Dodge: dash perpendicular
+                perp = angle_to_opp + self._circle_dir * self._PI / 2
+                return self._angle_to_action(perp)
+
+            # If mode is set, follow it
+            if self._mode == 'attack':
+                self._charge_target -= 1
+                if self._charge_target <= 0 or my_charge > 0.85:
+                    # Release the attack dash
+                    self._mode = 'idle'
+                    aim_noise = 0.12 + 0.4 * (1.0 - self.strength)
+                    angle = angle_to_opp + random.gauss(0, aim_noise)
+                    return self._angle_to_action(angle)
+                return 0  # keep charging
+
+            if self._mode == 'reposition':
+                self._charge_target -= 1
+                if self._charge_target <= 0:
+                    self._mode = 'idle'
+                    return self._angle_to_action(self._dash_angle)
+                return 0  # keep charging
+
+            # No mode set but have charge — release toward opponent
+            if my_charge > 0.15:
+                aim_noise = 0.2 + 0.4 * (1.0 - self.strength)
+                return self._angle_to_action(angle_to_opp + random.gauss(0, aim_noise))
+
+            # Low charge, keep going
             return 0
 
-        # Release leftover charge
-        if my_charge >= 0.1 and my_cooldown <= 0:
-            return self._angle_to_action(angle_to_opp)
+        # No charge — decide what to do next (pick a mode)
+        time_pressure = min(1.0, self._step / 200)
 
-        # APPROACH & CIRCLE
-        time_pressure = min(1.0, self._step / 250)
+        # ATTACK: charge up and dash at opponent
+        if dist_norm < 0.40:
+            attack_chance = 0.4 + 0.4 * time_pressure
+            if random.random() < attack_chance:
+                self._mode = 'attack'
+                # Charge longer when far, shorter when close
+                base = int(8 + 20 * dist_norm / 0.40)
+                self._charge_target = base + random.randint(-3, 5)
+                return 0
 
-        if dist_norm < 0.20:
-            perp_angle = angle_to_opp + self._circle_dir * self._PI / 2
-            attack_bias = 0.5 + 0.4 * time_pressure
-            angle = perp_angle * (1 - attack_bias) + angle_to_opp * attack_bias
-            if self._step % 30 == 0 and random.random() < 0.3:
-                self._circle_dir *= -1
-        else:
-            offset = self._circle_dir * self._PI / 8
-            angle = angle_to_opp + offset
+        # REPOSITION: short dash to improve position
+        if dist_norm > 0.35 or my_edge > 0.55:
+            self._mode = 'reposition'
+            self._charge_target = random.randint(3, 8)  # short charge
 
-        if my_edge > 0.5:
-            ca = math.atan2(-my_y, -my_x)
-            blend = min(1.0, (my_edge - 0.5) * 3.0)
-            angle = angle * (1 - blend * 0.4) + ca * blend * 0.4
+            if my_edge > 0.55:
+                # Dash toward center
+                self._dash_angle = math.atan2(-my_y, -my_x)
+            else:
+                # Dash toward opponent with flanking offset
+                offset = self._circle_dir * self._PI / 4
+                self._dash_angle = angle_to_opp + offset
+                if self._step % 40 == 0 and random.random() < 0.3:
+                    self._circle_dir *= -1
+            return 0
 
-        if random.random() < 0.06:
-            return random.randint(0, 8)
-
-        return self._angle_to_action(angle)
+        # Default: start an attack charge
+        self._mode = 'attack'
+        self._charge_target = random.randint(10, 25)
+        return 0
 
     def _angle_to_action(self, angle: float) -> int:
         best, best_diff = 1, 999.0
@@ -307,3 +335,4 @@ class DefaultAgent:
         return best
 
     def store(self, *_a): pass
+

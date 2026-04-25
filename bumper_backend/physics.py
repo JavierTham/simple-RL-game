@@ -30,10 +30,10 @@ KNOCKBACK_MAX_SPEED = 28.0  # post-collision speed cap (decays via friction)
 FORCE_MAGNITUDE = 1.2       # impulse per move action
 FRICTION = 0.90             # per-step velocity damping
 MAX_STEPS = 400
-CHARGE_RATE = 0.025          # charge per step when holding action 0 (~40 steps to full)
-MIN_CHARGE_TO_DASH = 0.10   # minimum charge to trigger a dash
-DASH_COOLDOWN_STEPS = 15    # cooldown after dashing before can charge again
-DASH_FLIGHT_FRAMES = 8      # frames of friction immunity during dash flight
+CHARGE_RATE = 0.04            # charge per step (~25 steps to full)
+MIN_CHARGE_TO_DASH = 0.08    # minimum charge to trigger a dash (~2 steps)
+DASH_COOLDOWN_STEPS = 10     # cooldown after dashing before can charge again
+DASH_FLIGHT_FRAMES = 8       # frames of friction immunity during dash flight
 _AR2 = (ARENA_RADIUS - BOT_RADIUS) ** 2   # squared out-of-bounds threshold
 
 _d = 0.7071
@@ -138,7 +138,7 @@ class Bot:
             self.body.velocity = (vx * 0.85, vy * 0.85)
             return
 
-        # MOVE action (1-8)
+        # MOVE action (1-8) — ONLY works as a dash if charged
         fx, fy = ACTION_FORCES[action]
 
         if self.charge_level >= MIN_CHARGE_TO_DASH and self.dash_cooldown <= 0:
@@ -153,23 +153,10 @@ class Bot:
             self.dash_frames_left = DASH_FLIGHT_FRAMES
             return
 
-        # Normal movement (no charge or on cooldown)
-        self.charge_level = 0.0  # moving cancels any partial charge
-        vx0, vy0 = self.body.velocity
-        speed_before = math.sqrt(vx0 * vx0 + vy0 * vy0)
-        # Apply the action impulse
-        self.body.apply_impulse_at_local_point(
-            (fx * FORCE_MAGNITUDE, fy * FORCE_MAGNITUDE)
-        )
-        # Only clamp if the action INCREASED speed beyond MAX_SPEED.
-        # This preserves knockback velocity (which decays via friction)
-        # while preventing infinite acceleration from holding a direction.
+        # No charge or on cooldown — bot cannot move, action wasted
+        # Apply braking (same as charging) so bot slows to a stop
         vx, vy = self.body.velocity
-        sp2 = vx * vx + vy * vy
-        max_allowed = max(speed_before, MAX_SPEED)
-        if sp2 > max_allowed * max_allowed:
-            scale = max_allowed / math.sqrt(sp2)
-            self.body.velocity = (vx * scale, vy * scale)
+        self.body.velocity = (vx * 0.90, vy * 0.90)
 
     def is_out(self) -> bool:
         x, y = self.body.position
@@ -231,7 +218,7 @@ class PhysicsWorld:
             self.bot2.remove_from(self.space)
 
         angle = random.random() * 6.283185307
-        spawn_dist = 60
+        spawn_dist = 40   # closer spawn for charge-only movement
         c, s = math.cos(angle), math.sin(angle)
         self.bot1 = Bot(self.space, -c * spawn_dist, -s * spawn_dist)
         self.bot2 = Bot(self.space, c * spawn_dist, s * spawn_dist)
