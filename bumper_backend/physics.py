@@ -118,12 +118,14 @@ class Bot:
         return self.body.velocity.y
 
     def apply_action(self, action: int):
-        self.is_dashing = False
-        self.last_dash_charge = 0.0
-
-        # Tick dash flight frames
+        # Keep is_dashing / last_dash_charge True for the whole flight window
+        # so a delayed collision (steps after the dash trigger) still registers
+        # as a dash hit in the reward function. Clear only when flight ends.
         if self.dash_frames_left > 0:
             self.dash_frames_left -= 1
+            if self.dash_frames_left == 0:
+                self.is_dashing = False
+                self.last_dash_charge = 0.0
 
         # Tick cooldown
         if self.dash_cooldown > 0:

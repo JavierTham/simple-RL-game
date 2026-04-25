@@ -39,6 +39,36 @@ assert v1 > MAX_SPEED * 1.5, f"Dash speed too low: {v1}"
 assert w.bot1.charge_level == 0.0, "Charge should be 0 after dash"
 print("  PASS")
 
+# -- Test 2b: Dash flags persist for the full flight window --
+# Regression test for the dash-hit reward bug: is_dashing and last_dash_charge
+# must remain set across all dash-flight frames so a delayed collision still
+# registers as a dash hit in trainer.compute_reward.
+print("\n=== Test 2b: Dash flags persist across flight window ===")
+w.reset()
+for _ in range(20):
+    w.step(0, 0)  # bot1 charges to full
+trigger_charge = w.bot1.charge_level
+w.step(3, 0)  # bot1 dashes right
+assert w.bot1.is_dashing, "is_dashing should be True on trigger step"
+assert w.bot1.last_dash_charge > 0, "last_dash_charge should be set on trigger step"
+trigger_charge_recorded = w.bot1.last_dash_charge
+flight_frames_seen = 1
+# Step bot1 with action 0 (charge) to confirm flags persist even though
+# action 0 would previously have cleared them at the top of apply_action.
+for f in range(20):
+    w.step(0, 0)
+    if w.bot1.is_dashing:
+        flight_frames_seen += 1
+        assert w.bot1.last_dash_charge == trigger_charge_recorded, \
+            f"last_dash_charge changed mid-flight: {w.bot1.last_dash_charge} vs {trigger_charge_recorded}"
+    else:
+        assert w.bot1.last_dash_charge == 0.0, \
+            "last_dash_charge should be 0 after flight ends"
+        break
+print(f"  Flight frames where is_dashing stayed True: {flight_frames_seen} (expected 8)")
+assert flight_frames_seen == 8, f"Dash flags persisted for {flight_frames_seen} frames, expected 8"
+print("  PASS")
+
 # -- Test 3: DefaultAgent decisive rate --
 print("\n=== Test 3: DefaultAgent vs DefaultAgent (100 games) ===")
 outcomes = {'bot0': 0, 'bot1': 0, 'draw': 0}
