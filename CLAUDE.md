@@ -8,21 +8,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Running the project
 
+Use the `rl-game` conda env exclusively — its interpreter lives at
+`/home/j/miniconda3/envs/rl-game/bin/python`. Don't fall back to system
+`python`/`pip`; deps were only installed inside this env.
+
 Install (once):
 ```
-pip install -r requirements.txt
-pip install pymunk    # not in requirements.txt but imported by physics.py
+/home/j/miniconda3/envs/rl-game/bin/pip install -r requirements.txt
+/home/j/miniconda3/envs/rl-game/bin/pip install pymunk    # imported by physics.py but missing from requirements.txt
 ```
 
 Run the dev server (serves frontend + WebSocket at http://127.0.0.1:8000):
 ```
-cd bumper_backend && python server.py
-# or: uvicorn server:app --reload --app-dir bumper_backend
+cd bumper_backend && /home/j/miniconda3/envs/rl-game/bin/python server.py
+# or: /home/j/miniconda3/envs/rl-game/bin/uvicorn server:app --reload --app-dir bumper_backend
 ```
 
 Run the physics/training smoke tests (assert-script, not pytest):
 ```
-cd bumper_backend && python test_changes.py
+cd bumper_backend && /home/j/miniconda3/envs/rl-game/bin/python test_changes.py
 ```
 The script uses `sys.path.insert(0, '.')` so it must be run from `bumper_backend/`. There is no test runner; failures surface as `AssertionError`.
 
