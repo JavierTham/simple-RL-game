@@ -243,7 +243,10 @@ class PhysicsWorld:
         else:
             bot, opp = self.bot2, self.bot1
         ar = ARENA_RADIUS
-        ms = MAX_SPEED
+        # Normalize velocities by the hard speed ceiling (post-collision cap),
+        # not MAX_SPEED — dashes reach ~22 and knockbacks ~28, so dividing by
+        # 6.0 would push the most decision-relevant inputs far outside [-1, 1].
+        ms = KNOCKBACK_MAX_SPEED
         bx, by = bot.body.position
         bvx, bvy = bot.body.velocity
         ox, oy = opp.body.position
