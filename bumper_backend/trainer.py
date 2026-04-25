@@ -54,9 +54,15 @@ class Trainer:
         dist_ratio = dist_opp / _ARENA_DIAM
         time_frac = world.step_count / TRAIN_MAX_STEPS
 
-        # ── Time pressure (escalating) ──
+        # ── Time pressure (flat) ──
+        # Constraint: total per-episode time penalty must stay below
+        # (loss_penalty - draw_penalty) = 6.0, otherwise timeout becomes
+        # *worse* than a fast loss and the agent prefers running off the
+        # edge to stalling. At 0.02/step over 150 training steps that's 3.0.
+        # Escalation removed: the agent has no step-count input, so the
+        # ramp couldn't translate into actionable behavior anyway.
         if not done:
-            r -= 0.04 * (0.5 + 1.5 * time_frac)
+            r -= 0.02
 
         # ── CHARGE reward: incentivize charging near opponent ──
         if bot.charge_level > 0:
