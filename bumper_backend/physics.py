@@ -40,6 +40,18 @@ DASH_COOLDOWN_STEPS = 10     # cooldown after dashing before can charge again
 # At FRAMES=3 that's 66 + 79.6 ≈ 146 px on a 165-px is_out radius — a missed
 # dash from center stops well inside the rim instead of self-KO'ing.
 DASH_FLIGHT_FRAMES = 3
+# Soft-edge brake: when a bot's center is past SOFT_EDGE_INNER and not in a
+# knockback window, the outward-radial component of velocity is linearly damped
+# to zero between SOFT_EDGE_INNER and SOFT_EDGE_OUTER. This stops a bot from
+# dashing itself off the rim from positions near the edge (self-KO), while
+# leaving inward and tangential motion untouched. SOFT_EDGE_OUTER equals the
+# is_out threshold (ARENA_RADIUS - BOT_RADIUS).
+SOFT_EDGE_INNER = 140
+SOFT_EDGE_OUTER = ARENA_RADIUS - BOT_RADIUS  # 165
+# Frames after a collision during which the soft-edge brake is bypassed.
+# Long enough for a knockback at KNOCKBACK_MAX_SPEED=28 to actually carry a
+# bot off the rim before damping naturally drains it.
+KNOCKED_FRAMES = 6
 _AR2 = (ARENA_RADIUS - BOT_RADIUS) ** 2   # squared out-of-bounds threshold
 
 _d = 0.7071
@@ -78,12 +90,13 @@ BOT_FRICTION = 0.7
 def _clamp_velocity(body, gravity, damping, dt):
     """Custom velocity function: applies damping, then caps speed.
     Dashing bots skip damping during flight frames to preserve dash velocity.
-    Uses KNOCKBACK_MAX_SPEED as the hard ceiling."""
-    # Check if this body's bot is in dash flight (skip damping if so)
+    Uses KNOCKBACK_MAX_SPEED as the hard ceiling. The soft-edge brake is
+    applied separately in Bot.apply_action — pymunk integrates position
+    using the velocity set before space.step, so braking here would only
+    take effect on the NEXT step (one full dash-frame too late)."""
     bot = getattr(body, '_bot_ref', None)
     if bot and bot.dash_frames_left > 0:
-        # No damping during dash flight — preserve momentum
-        pymunk.Body.update_velocity(body, gravity, 1.0, dt)  # damping=1.0 = no damping
+        pymunk.Body.update_velocity(body, gravity, 1.0, dt)  # no damping
     else:
         pymunk.Body.update_velocity(body, gravity, damping, dt)
     vx, vy = body.velocity
@@ -98,7 +111,7 @@ class Bot:
     Exposes x, y, vx, vy properties for interface compatibility."""
     __slots__ = ('body', 'shape', 'radius',
                  'charge_level', 'is_dashing', 'dash_cooldown',
-                 'last_dash_charge', 'dash_frames_left')
+                 'last_dash_charge', 'dash_frames_left', 'knocked_frames')
 
     def __init__(self, space: pymunk.Space, x: float, y: float):
         self.radius = BOT_RADIUS
@@ -107,6 +120,7 @@ class Bot:
         self.dash_cooldown = 0
         self.last_dash_charge = 0.0  # charge level of most recent dash (for rewards)
         self.dash_frames_left = 0   # frames of friction immunity remaining
+        self.knocked_frames = 0     # frames of soft-edge-brake bypass remaining
 
         # Infinite moment prevents rotation (irrelevant for circles)
         self.body = pymunk.Body(BOT_MASS, float('inf'))
@@ -153,6 +167,10 @@ class Bot:
         if self.dash_cooldown > 0:
             self.dash_cooldown -= 1
 
+        # Tick post-collision soft-edge bypass
+        if self.knocked_frames > 0:
+            self.knocked_frames -= 1
+
         # During dash flight, skip both braking branches below — _clamp_velocity
         # already preserves dash velocity by suppressing space damping for these
         # frames, and stamping vel *= 0.85/0.90 here would defeat that.
@@ -166,13 +184,9 @@ class Bot:
             if not in_dash_flight:
                 vx, vy = self.body.velocity
                 self.body.velocity = (vx * 0.85, vy * 0.85)
-            return
-
-        # MOVE action (1-8) — ONLY works as a dash if charged
-        fx, fy = ACTION_FORCES[action]
-
-        if self.charge_level >= MIN_CHARGE_TO_DASH and self.dash_cooldown <= 0:
-            # DASH: release stored charge as high-speed burst
+        elif self.charge_level >= MIN_CHARGE_TO_DASH and self.dash_cooldown <= 0:
+            # MOVE action (1-8) with charge: release stored charge as a dash
+            fx, fy = ACTION_FORCES[action]
             charge = self.charge_level
             dash_speed = DASH_MIN_SPEED + charge * (DASH_MAX_SPEED - DASH_MIN_SPEED)
             self.body.velocity = (fx * dash_speed, fy * dash_speed)
@@ -181,13 +195,33 @@ class Bot:
             self.charge_level = 0.0
             self.dash_cooldown = DASH_COOLDOWN_STEPS
             self.dash_frames_left = DASH_FLIGHT_FRAMES
-            return
+        else:
+            # No charge or on cooldown — bot cannot move, action wasted.
+            # Apply braking (slightly stronger than charge) so bot slows to a stop.
+            if not in_dash_flight:
+                vx, vy = self.body.velocity
+                self.body.velocity = (vx * 0.90, vy * 0.90)
 
-        # No charge or on cooldown — bot cannot move, action wasted
-        # Apply braking (same as charging) so bot slows to a stop
-        if not in_dash_flight:
-            vx, vy = self.body.velocity
-            self.body.velocity = (vx * 0.90, vy * 0.90)
+        # Soft-edge brake: damp outward-radial velocity in the outer zone so a
+        # miss-aimed dash can't carry past the rim. Skipped during the
+        # post-collision knockback window so a hard hit can still KO. Applied
+        # here (pre-step) — pymunk integrates position with the velocity set
+        # before space.step, so braking inside _clamp_velocity is one frame
+        # too late on the dash-trigger step.
+        if self.knocked_frames == 0:
+            x, y = self.body.position
+            dist_sq = x * x + y * y
+            if dist_sq > SOFT_EDGE_INNER * SOFT_EDGE_INNER:
+                dist = math.sqrt(dist_sq)
+                vx, vy = self.body.velocity
+                v_radial = (vx * x + vy * y) / dist  # outward = positive
+                if v_radial > 0:
+                    t = (dist - SOFT_EDGE_INNER) / (SOFT_EDGE_OUTER - SOFT_EDGE_INNER)
+                    if t > 1.0:
+                        t = 1.0
+                    rx, ry = x / dist, y / dist
+                    drop = t * v_radial
+                    self.body.velocity = (vx - drop * rx, vy - drop * ry)
 
     def is_out(self) -> bool:
         x, y = self.body.position
@@ -251,6 +285,10 @@ class PhysicsWorld:
             self.bot1.dash_frames_left = 0
         if self.bot2.is_dashing:
             self.bot2.dash_frames_left = 0
+        # Both bots get a knockback window where the soft-edge brake is
+        # bypassed, so a hard hit can still carry the loser off the rim.
+        self.bot1.knocked_frames = KNOCKED_FRAMES
+        self.bot2.knocked_frames = KNOCKED_FRAMES
 
     def reset(self):
         # Remove old bots from space
