@@ -21,7 +21,7 @@ import random
 import numpy as np
 import pymunk
 
-ARENA_RADIUS = 180
+ARENA_RADIUS = 150
 BOT_RADIUS = 15
 MAX_SPEED = 6.0
 DASH_MIN_SPEED = 10.0       # dash at minimum viable charge (~10%)
@@ -46,12 +46,15 @@ DASH_FLIGHT_FRAMES = 3
 # dashing itself off the rim from positions near the edge (self-KO), while
 # leaving inward and tangential motion untouched. SOFT_EDGE_OUTER equals the
 # is_out threshold (ARENA_RADIUS - BOT_RADIUS).
-SOFT_EDGE_INNER = 140
-SOFT_EDGE_OUTER = ARENA_RADIUS - BOT_RADIUS  # 165
+SOFT_EDGE_OUTER = ARENA_RADIUS - BOT_RADIUS
+SOFT_EDGE_INNER = SOFT_EDGE_OUTER - 25  # 25-px brake zone scales with arena
 # Frames after a collision during which the soft-edge brake is bypassed.
-# Long enough for a knockback at KNOCKBACK_MAX_SPEED=28 to actually carry a
-# bot off the rim before damping naturally drains it.
-KNOCKED_FRAMES = 6
+# Sized so a knockback originating near the center can actually carry a bot
+# to the rim before brake re-engages: target velocity ~22 immediately after
+# a full-charge hit decays at FRICTION=0.9/step, giving total bypass-range
+# ≈ DASH_MAX_SPEED * (1 - FRICTION^N) / (1 - FRICTION). At N=10 that's
+# ~143 px, just past is_out=135 on the R=150 arena — center hits can KO.
+KNOCKED_FRAMES = 10
 _AR2 = (ARENA_RADIUS - BOT_RADIUS) ** 2   # squared out-of-bounds threshold
 
 _d = 0.7071
