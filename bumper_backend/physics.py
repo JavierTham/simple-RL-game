@@ -63,7 +63,16 @@ BOT_MASS = 1.0
 # 1.5 = 2.25 effective restitution roughly tripled KE per collision and made
 # dashers rebound almost as far as the target they hit).
 BOT_ELASTICITY = 1.0
-BOT_FRICTION = 0.0      # no surface friction between bots
+# Pymunk combines friction multiplicatively too (μ_eff = a.μ * b.μ). At μ=0
+# every glancing collision was perfectly frictionless: a dasher hitting the
+# edge of the target retained almost all its tangential velocity while the
+# target only got the small normal-component impulse, so the fast bot kept
+# more speed than the slow bot it just hit. μ=0.7 transfers enough
+# tangential momentum on contact that the target ends up faster than the
+# dasher even on heavy glancing hits (offset ~24), without dissipating as
+# much KE as μ=1.0 (~70% retained vs ~65%) — preserving more knockback
+# energy for decisive matches.
+BOT_FRICTION = 0.7
 
 
 def _clamp_velocity(body, gravity, damping, dt):

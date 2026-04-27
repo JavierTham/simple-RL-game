@@ -92,7 +92,12 @@ for g in range(100):
     else: outcomes['draw'] += 1
 decisive = outcomes['bot0'] + outcomes['bot1']
 print(f"  Decisive: {decisive}%, Draws: {outcomes['draw']}%, Avg steps: {total_steps/100:.0f}")
-assert decisive >= 50, f"Only {decisive}% decisive - needs >50%"
+# Floor lowered from 50% after the post-momentum-fix balance: with elastic
+# (e=1) collisions and DASH_FLIGHT_FRAMES=3, knockback range is ~80 px on
+# a 165-px arena, so heuristic-vs-heuristic matches draw more often than
+# they did under the old super-elastic physics. 30% is a sanity floor that
+# still catches "the heuristic can never KO".
+assert decisive >= 30, f"Only {decisive}% decisive - needs >30%"
 print("  PASS")
 
 # -- Test 4: Training convergence + timing --
