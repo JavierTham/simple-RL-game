@@ -4,7 +4,7 @@ Architecture: Dueling DQN — separates state value V(s) from advantage A(s,a).
 This is much more sample-efficient for games where many states have similar
 values but the best action varies.
 
-15 → 128 → V(s) stream + A(s,a) stream → Q(s,a)
+18 → 128 → V(s) stream + A(s,a) stream → Q(s,a)
 """
 import numpy as np
 import random
@@ -19,7 +19,7 @@ DEVICE = torch.device('cpu')
 class QNetwork(nn.Module):
     """Dueling DQN: Q(s,a) = V(s) + A(s,a) - mean(A)."""
 
-    def __init__(self, input_size=15, hidden1=128, hidden2=64, output_size=9, lr=0.001):
+    def __init__(self, input_size=18, hidden1=128, hidden2=64, output_size=9, lr=0.001):
         super().__init__()
         self.sizes = (input_size, hidden1, hidden2, output_size)
         self.lr = lr
@@ -112,7 +112,7 @@ class QNetwork(nn.Module):
 class ReplayBuffer:
     """Fixed-size circular replay buffer with priority sampling."""
 
-    def __init__(self, capacity: int = 20000, obs_dim: int = 15):
+    def __init__(self, capacity: int = 20000, obs_dim: int = 18):
         self.capacity = capacity
         self.size = 0
         self.pos = 0

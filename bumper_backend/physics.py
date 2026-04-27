@@ -348,6 +348,22 @@ class PhysicsWorld:
             vel_dot_dir = (bvx * dx + bvy * dy) / (speed * dist_opp)
         else:
             vel_dot_dir = 0.0
+
+        # Dash safety toward opponent: how far we can travel along the
+        # bot→opponent ray before hitting SOFT_EDGE_OUTER. Normalized by max
+        # dash range (DASH_MAX_SPEED * DASH_FLIGHT_FRAMES = 66 px). >1 means
+        # a full dash at the opponent won't overshoot the rim. Quadratic:
+        # solve |p + t·u|² = R² for t > 0 with u the unit vector to opp.
+        if dist_opp > 1e-6:
+            ux, uy = dx / dist_opp, dy / dist_opp
+            b_dot = bx * ux + by * uy
+            disc = b_dot * b_dot - (bx * bx + by * by - SOFT_EDGE_OUTER * SOFT_EDGE_OUTER)
+            t_rim = (-b_dot + math.sqrt(disc)) if disc > 0 else 0.0
+        else:
+            t_rim = SOFT_EDGE_OUTER  # no opponent direction; arbitrary safe default
+        max_dash_range = DASH_MAX_SPEED * DASH_FLIGHT_FRAMES
+        dash_safety = min(1.5, max(0.0, t_rim / max_dash_range))
+
         return np.array([
             bx / ar, by / ar,
             bvx / ms, bvy / ms,
@@ -357,10 +373,14 @@ class PhysicsWorld:
             opp_edge,             # opponent distance from center (normalized)
             vel_dot_dir,          # alignment: +1=charging, 0=flanking, -1=fleeing
             dist_opp / (2 * ar),  # inter-bot distance (normalized)
-            # ── New charge/dash features ──
+            # ── Charge/dash features ──
             bot.charge_level,                          # own charge (0-1)
             opp.charge_level,                          # opponent charge (0-1)
             bot.dash_cooldown / DASH_COOLDOWN_STEPS,   # own cooldown (0-1)
+            # ── Tactical-awareness features (added in obs expansion 15→18) ──
+            dash_safety,                               # 0=at rim, 1=full dash safe
+            1.0 if opp.dash_frames_left > 0 else 0.0,  # opp committed mid-dash
+            opp.dash_cooldown / DASH_COOLDOWN_STEPS,   # opp cooldown (0-1)
         ], dtype=np.float64)
 
     def step(self, action1: int, action2: int):
