@@ -51,7 +51,12 @@ ACTION_FORCES = [
 
 BOT_COLLISION_TYPE = 1
 BOT_MASS = 1.0
-BOT_ELASTICITY = 1.5    # slightly super-elastic for dramatic bumper hits
+# Pymunk combines elasticities multiplicatively (e_eff = a.e * b.e). Setting
+# both bots to 1.0 yields a perfectly elastic collision — momentum and kinetic
+# energy are both conserved. Higher values inject energy on every hit (1.5 ×
+# 1.5 = 2.25 effective restitution roughly tripled KE per collision and made
+# dashers rebound almost as far as the target they hit).
+BOT_ELASTICITY = 1.0
 BOT_FRICTION = 0.0      # no surface friction between bots
 
 
@@ -120,12 +125,14 @@ class Bot:
     def apply_action(self, action: int):
         # Keep is_dashing / last_dash_charge True for the whole flight window
         # so a delayed collision (steps after the dash trigger) still registers
-        # as a dash hit in the reward function. Clear only when flight ends.
+        # as a dash hit in the reward function. Clear when flight ends — either
+        # by the natural countdown reaching zero, or by a collision setting
+        # dash_frames_left to 0 to end the no-damping window early.
         if self.dash_frames_left > 0:
             self.dash_frames_left -= 1
-            if self.dash_frames_left == 0:
-                self.is_dashing = False
-                self.last_dash_charge = 0.0
+        if self.dash_frames_left == 0 and self.is_dashing:
+            self.is_dashing = False
+            self.last_dash_charge = 0.0
 
         # Tick cooldown
         if self.dash_cooldown > 0:
@@ -212,12 +219,23 @@ class PhysicsWorld:
         )
 
     def _on_collision(self, arbiter, space, data):
-        """Record collision impulse for reward calculation."""
+        """Record collision impulse for reward calculation, and end any
+        in-progress dash flight. The post-collision velocity is a rebound,
+        not the dash itself, so it shouldn't keep skipping space damping —
+        otherwise the dasher's rebound is preserved while the target's push
+        damps normally, and the dasher ends up traveling nearly as far as
+        the bot it just hit. is_dashing/last_dash_charge are left alone here
+        so this step's reward attribution still sees the hit; they'll be
+        cleared on the next apply_action call (dash_frames_left == 0)."""
         self._collision_this_step = True
         impulse = arbiter.total_impulse
         self._collision_impulse_mag = math.sqrt(
             impulse.x * impulse.x + impulse.y * impulse.y
         ) / BOT_MASS
+        if self.bot1.is_dashing:
+            self.bot1.dash_frames_left = 0
+        if self.bot2.is_dashing:
+            self.bot2.dash_frames_left = 0
 
     def reset(self):
         # Remove old bots from space
