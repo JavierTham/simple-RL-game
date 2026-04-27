@@ -7,8 +7,11 @@ Optimized for speed and effectiveness:
 - n-step returns (n=5) for fast temporal credit
 - Train every 4 steps for more gradient updates
 - Tight episode limit (150 steps) to force decisive play
+- Self-play league: late training mixes in past snapshots + current
+  self so the agent doesn't overfit to the scripted heuristic.
 """
 import math
+import random
 import numpy as np
 from physics import (PhysicsWorld, ARENA_RADIUS, MAX_SPEED, MAX_STEPS,
                      DASH_MAX_SPEED, DASH_COOLDOWN_STEPS)
@@ -16,7 +19,37 @@ from agent import DQNAgent, DefaultAgent
 
 TRAIN_EVERY = 8       # train every 8 env steps (good speed/learning balance)
 TRAIN_MAX_STEPS = 150  # tight limit forces decisive play
+SNAPSHOT_EVERY = 200   # episodes between weight snapshots for past-self pool
+SNAPSHOT_KEEP = 5      # FIFO depth of past-self snapshots
 _ARENA_DIAM = 2 * ARENA_RADIUS
+
+
+class _GreedyDQNOpponent:
+    """Wraps a frozen DQNAgent so it satisfies the opponent interface
+    (get_action(obs) → int). Used for past-self snapshots; the wrapped
+    agent never trains and always plays greedily."""
+    __slots__ = ('agent',)
+
+    def __init__(self, weights: dict):
+        self.agent = DQNAgent()
+        self.agent.set_weights(weights)
+
+    def get_action(self, state):
+        return self.agent.get_action_greedy(state)
+
+
+class _CurrentSelfOpponent:
+    """Live mirror of the training agent; opponent's actions track the
+    current network so self-play exploits new policy improvements
+    immediately. Plays greedily — no extra exploration noise from the
+    opponent side."""
+    __slots__ = ('agent',)
+
+    def __init__(self, agent: DQNAgent):
+        self.agent = agent
+
+    def get_action(self, state):
+        return self.agent.get_action_greedy(state)
 
 
 class Trainer:
@@ -135,6 +168,43 @@ class Trainer:
 
         return r
 
+    # ── opponent sampling (curriculum + self-play league) ───
+    def _pick_opponent(self, progress: float, snapshots: list[dict]):
+        """Sample an opponent type from a 4-way mix that shifts toward
+        self-play as training progresses. Mix tuples are (easy_heuristic,
+        hard_heuristic, past_self_dqn, current_self_dqn) probabilities.
+
+        Early (progress < 0.3): mostly weak heuristic so the agent learns
+        the basic charge→dash loop without being instantly KO'd.
+        Mid   (0.3–0.7): even mix; self-play kicks in as snapshots fill.
+        Late  (>0.7): mostly self-play so policy generalizes beyond the
+        scripted heuristic's specific weaknesses.
+
+        If no snapshots are available yet, the past-self mass is folded
+        into the current-self bucket (any self-play is better than none).
+        """
+        if progress < 0.3:
+            mix = (0.55, 0.30, 0.05, 0.10)
+        elif progress < 0.7:
+            mix = (0.20, 0.30, 0.30, 0.20)
+        else:
+            mix = (0.05, 0.20, 0.45, 0.30)
+
+        if not snapshots:
+            # Fold past-self mass into current-self
+            mix = (mix[0], mix[1], 0.0, mix[2] + mix[3])
+
+        kind = random.choices(['easy', 'hard', 'past', 'current'], weights=mix, k=1)[0]
+        if kind == 'easy':
+            # Strength ramps from sloppy to mid as training progresses.
+            return DefaultAgent(strength=min(1.0, 0.2 + 0.4 * progress))
+        if kind == 'hard':
+            return DefaultAgent(strength=1.0)
+        if kind == 'past':
+            return _GreedyDQNOpponent(random.choice(snapshots))
+        # current self
+        return _CurrentSelfOpponent(self.agent)
+
     # ── single episode (with DQN updates) ───────────────────
     def run_episode(self, agent: DQNAgent, opponent, reward_weights: dict,
                     train: bool = True, record_frames: bool = False,
@@ -205,33 +275,23 @@ class Trainer:
         self.is_training = True
         self.training_stats.clear()
 
+        snapshots: list[dict] = []  # FIFO of past-self weights for self-play
+
         wins, recent = 0, []
         for ep in range(num_episodes):
             if not self.is_training:
                 break
 
-            # 3-phase curriculum: basics → tactics → final boss
             progress = ep / max(num_episodes - 1, 1)
-            if progress < 0.4:
-                # Phase 1: Learn basics (charge→dash→hit) against easy bots
-                base_strength = 0.1 + 0.4 * (progress / 0.4)     # 0.1 → 0.5
-                easy_freq = 2  # every other ep is easier
-            elif progress < 0.8:
-                # Phase 2: Develop tactics against medium opponents
-                p2 = (progress - 0.4) / 0.4
-                base_strength = 0.5 + 0.25 * p2                   # 0.5 → 0.75
-                easy_freq = 3
-            else:
-                # Phase 3: Final boss — face full-strength heuristic
-                p3 = (progress - 0.8) / 0.2
-                base_strength = 0.75 + 0.25 * p3                  # 0.75 → 1.0
-                easy_freq = 5  # rarely easy in boss phase
 
-            if ep % easy_freq == 0:
-                opp_strength = base_strength * 0.5
-            else:
-                opp_strength = base_strength
-            opponent = DefaultAgent(strength=min(1.0, opp_strength))
+            # Snapshot past-self every SNAPSHOT_EVERY episodes (skip ep 0 —
+            # weights would be raw init, useless as an opponent).
+            if ep > 0 and ep % SNAPSHOT_EVERY == 0:
+                snapshots.append(self.agent.get_weights())
+                if len(snapshots) > SNAPSHOT_KEEP:
+                    snapshots.pop(0)
+
+            opponent = self._pick_opponent(progress, snapshots)
 
             result = self.run_episode(self.agent, opponent, rw, train=True)
 
