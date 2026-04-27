@@ -4,7 +4,8 @@ import time
 import math
 sys.path.insert(0, '.')
 from physics import (PhysicsWorld, MAX_SPEED, ARENA_RADIUS, DASH_MAX_SPEED,
-                     KNOCKBACK_MAX_SPEED, FRICTION, CHARGE_RATE, MIN_CHARGE_TO_DASH)
+                     KNOCKBACK_MAX_SPEED, FRICTION, CHARGE_RATE, MIN_CHARGE_TO_DASH,
+                     DASH_FLIGHT_FRAMES)
 from trainer import Trainer
 from agent import DQNAgent, DefaultAgent
 
@@ -65,8 +66,9 @@ for f in range(20):
         assert w.bot1.last_dash_charge == 0.0, \
             "last_dash_charge should be 0 after flight ends"
         break
-print(f"  Flight frames where is_dashing stayed True: {flight_frames_seen} (expected 8)")
-assert flight_frames_seen == 8, f"Dash flags persisted for {flight_frames_seen} frames, expected 8"
+print(f"  Flight frames where is_dashing stayed True: {flight_frames_seen} (expected {DASH_FLIGHT_FRAMES})")
+assert flight_frames_seen == DASH_FLIGHT_FRAMES, \
+    f"Dash flags persisted for {flight_frames_seen} frames, expected {DASH_FLIGHT_FRAMES}"
 print("  PASS")
 
 # -- Test 3: DefaultAgent decisive rate --

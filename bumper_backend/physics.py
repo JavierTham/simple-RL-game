@@ -33,7 +33,13 @@ MAX_STEPS = 400
 CHARGE_RATE = 0.04            # charge per step (~25 steps to full)
 MIN_CHARGE_TO_DASH = 0.08    # minimum charge to trigger a dash (~2 steps)
 DASH_COOLDOWN_STEPS = 10     # cooldown after dashing before can charge again
-DASH_FLIGHT_FRAMES = 8       # frames of friction immunity during dash flight
+# Frames of damping immunity during dash flight. Must be small enough that a
+# full-charge dash from center can't carry past the arena edge. Pymunk
+# integrates position with the pre-damping velocity, so:
+#   total range = FRAMES * DASH_MAX_SPEED + DASH_MAX_SPEED * 0.85 / (1 - 0.85*0.9)
+# At FRAMES=3 that's 66 + 79.6 ≈ 146 px on a 165-px is_out radius — a missed
+# dash from center stops well inside the rim instead of self-KO'ing.
+DASH_FLIGHT_FRAMES = 3
 _AR2 = (ARENA_RADIUS - BOT_RADIUS) ** 2   # squared out-of-bounds threshold
 
 _d = 0.7071
