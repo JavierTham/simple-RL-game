@@ -252,6 +252,14 @@ class PhysicsWorld:
         self._collision_impulse_mag = 0.0
         # Track dash-collision (at least one bot was dashing during collision)
         self.dash_collision = False
+        # Self-KO detection: bot index that exited mid-own-dash, or None.
+        self.self_ko: int | None = None
+        # Missed-dash flags: True for one step when a bot's dash flight ended
+        # without a collision, plus the charge level at the moment it ended.
+        self.bot1_missed_dash = False
+        self.bot2_missed_dash = False
+        self.bot1_missed_charge = 0.0
+        self.bot2_missed_charge = 0.0
         self._init_space()
         self.reset()
 
@@ -307,6 +315,11 @@ class PhysicsWorld:
         self.dash_collision = False
         self.bot1_knock = 0.0
         self.bot2_knock = 0.0
+        self.self_ko = None
+        self.bot1_missed_dash = False
+        self.bot2_missed_dash = False
+        self.bot1_missed_charge = 0.0
+        self.bot2_missed_charge = 0.0
 
     def get_observation(self, bot_idx: int) -> np.ndarray:
         if bot_idx == 0:
@@ -351,6 +364,14 @@ class PhysicsWorld:
         ], dtype=np.float64)
 
     def step(self, action1: int, action2: int):
+        # Snapshot pre-action dash state so we can detect a dash ending
+        # without a hit AND recover the charge value at the moment it ended
+        # (apply_action clears last_dash_charge when df→0).
+        b1_pre_df = self.bot1.dash_frames_left
+        b2_pre_df = self.bot2.dash_frames_left
+        b1_pre_charge = self.bot1.last_dash_charge
+        b2_pre_charge = self.bot2.last_dash_charge
+
         # Apply actions as impulses (instant velocity change)
         self.bot1.apply_action(action1)
         self.bot2.apply_action(action2)
@@ -375,9 +396,35 @@ class PhysicsWorld:
             self.bot1_knock = 0.0
             self.bot2_knock = 0.0
 
+        # Missed-dash detection: bot was in flight at step start, flight has
+        # ended (or was ended by collision check), and no collision happened.
+        # Used by the dodge bonus on the OPPONENT's reward — the bot facing
+        # the missed dash gets a small reward.
+        self.bot1_missed_dash = (b1_pre_df > 0
+                                 and self.bot1.dash_frames_left == 0
+                                 and not self._collision_this_step)
+        self.bot2_missed_dash = (b2_pre_df > 0
+                                 and self.bot2.dash_frames_left == 0
+                                 and not self._collision_this_step)
+        self.bot1_missed_charge = b1_pre_charge if self.bot1_missed_dash else 0.0
+        self.bot2_missed_charge = b2_pre_charge if self.bot2_missed_dash else 0.0
+
         self.step_count += 1
         bot1_out = self.bot1.is_out()
         bot2_out = self.bot2.is_out()
+
+        # Self-KO detection: bot exited while in its own dash flight, with no
+        # collision this step. Requires brake bypass (knocked_frames > 0) to
+        # have been active OR brake to have been insufficient — either way,
+        # it's a tactical self-elimination, not a knockback-out.
+        self.self_ko = None
+        if bot1_out and not self._collision_this_step and (
+                self.bot1.is_dashing or b1_pre_df > 0):
+            self.self_ko = 0
+        elif bot2_out and not self._collision_this_step and (
+                self.bot2.is_dashing or b2_pre_df > 0):
+            self.self_ko = 1
+
         done = bot1_out or bot2_out or self.step_count >= MAX_STEPS
         winner = None
         if done:
