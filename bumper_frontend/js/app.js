@@ -205,11 +205,11 @@
         progressText.textContent = `${data.episode} / ${data.total_episodes} (${pct}%)`;
         $('#stat-winrate').textContent = (data.win_rate * 100).toFixed(1) + '%';
         $('#stat-episode').textContent = data.episode;
-        $('#stat-wins').textContent = data.total_wins;
+        $('#stat-wins').textContent = (data.lose_rate * 100).toFixed(1) + '%';
         $('#stat-reward').textContent = data.avg_reward.toFixed(2);
 
         if (liveChart) {
-            liveChart.push(data.win_rate, data.avg_reward);
+            liveChart.push(data.win_rate, data.lose_rate);
         }
     });
 
