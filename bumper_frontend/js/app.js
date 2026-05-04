@@ -134,7 +134,11 @@
     $$('input[type="range"]').forEach(slider => {
         const id = slider.id.replace('slider-', '');
         slider.addEventListener('input', () => {
-            $(`#val-${id}`).textContent = parseFloat(slider.value).toFixed(1);
+            // $(`#val-${id}`).textContent = parseFloat(slider.value).toFixed(1);
+            $(`#val-${id}`).textContent =
+                id === "input_episodes"
+                    ? parseInt(slider.value)
+                    : parseFloat(slider.value).toFixed(1);
             // Deactivate preset buttons when user manually adjusts
             $$('.preset-btn').forEach(b => b.classList.remove('active'));
         });
@@ -175,7 +179,7 @@
         isTraining = true;
 
         const config = {
-            num_episodes: parseInt($('#input-episodes').value),
+            num_episodes: parseInt($('#slider-input_episodes').value),
             learning_rate: parseFloat($('#input-lr').value),
             reward_weights: getRewardWeights(),
         };
