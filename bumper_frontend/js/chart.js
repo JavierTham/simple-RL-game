@@ -12,7 +12,7 @@ class LiveChart {
         this.H = this.canvas.height;
 
         this.dataWinRate = [];
-        this.dataReward = [];
+        this.dataLossRate = [];
         this.maxLen = 0;
 
         this.padL = 40;
@@ -29,13 +29,13 @@ class LiveChart {
     reset(maxEpisodes) {
         this.maxLen = maxEpisodes;
         this.dataWinRate = [];
-        this.dataReward = [];
+        this.dataLossRate = [];
         this.render();
     }
 
-    push(winRate, reward) {
+    push(winRate, lossRate) {
         this.dataWinRate.push(winRate);
-        this.dataReward.push(reward);
+        this.dataLossRate.push(lossRate);
         this.render();
     }
 
@@ -63,7 +63,7 @@ class LiveChart {
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
 
-        // Labels for Win Rate [0, 1] on the left
+        // Labels for Win/Loss Rate [0, 1] on the left
         ctx.fillText('100%', this.padL - 5, this.padT);
         ctx.fillText('50%', this.padL - 5, this.padT + this.plotH / 2);
         ctx.fillText('0%', this.padL - 5, this.padT + this.plotH);
@@ -82,19 +82,19 @@ class LiveChart {
         const dx = total > 1 ? this.plotW / (total - 1) : 0;
 
         // Draw Reward (scaled arbitrarily roughly -1 to +2)
-        this.ctx.beginPath();
-        this.ctx.strokeStyle = 'rgba(224,64,251,0.6)';
-        this.ctx.lineWidth = 1.5;
-        for (let i = 0; i < len; i++) {
-            const x = this.padL + i * dx;
-            // Map reward from [-1, 2] to [plotH, 0]
-            let r = this.dataReward[i];
-            r = Math.max(-1, Math.min(2, r));
-            const y = this.padT + this.plotH - ((r + 1) / 3) * this.plotH;
-            if (i === 0) this.ctx.moveTo(x, y);
-            else this.ctx.lineTo(x, y);
-        }
-        this.ctx.stroke();
+        // this.ctx.beginPath();
+        // this.ctx.strokeStyle = 'rgba(224,64,251,0.6)';
+        // this.ctx.lineWidth = 1.5;
+        // for (let i = 0; i < len; i++) {
+        //     const x = this.padL + i * dx;
+        //     // Map reward from [-1, 2] to [plotH, 0]
+        //     let r = this.dataLossRate[i];
+        //     r = Math.max(-1, Math.min(2, r));
+        //     const y = this.padT + this.plotH - ((r + 1) / 3) * this.plotH;
+        //     if (i === 0) this.ctx.moveTo(x, y);
+        //     else this.ctx.lineTo(x, y);
+        // }
+        // this.ctx.stroke();
 
         // Draw Win Rate (0 to 1)
         this.ctx.beginPath();
@@ -103,6 +103,19 @@ class LiveChart {
         for (let i = 0; i < len; i++) {
             const x = this.padL + i * dx;
             const w = this.dataWinRate[i];
+            const y = this.padT + this.plotH - w * this.plotH;
+            if (i === 0) this.ctx.moveTo(x, y);
+            else this.ctx.lineTo(x, y);
+        }
+        this.ctx.stroke();
+
+        // Draw Loss Rate (0 to 1)
+        this.ctx.beginPath();
+        this.ctx.strokeStyle = 'rgba(224,64,251,0.6)'; // purple
+        this.ctx.lineWidth = 2;
+        for (let i = 0; i < len; i++) {
+            const x = this.padL + i * dx;
+            const w = this.dataLossRate[i];
             const y = this.padT + this.plotH - w * this.plotH;
             if (i === 0) this.ctx.moveTo(x, y);
             else this.ctx.lineTo(x, y);

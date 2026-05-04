@@ -44,15 +44,15 @@ class DQNAgent:
 
     def get_action(self, state: np.ndarray) -> int:
         """Epsilon-greedy exploration that respects charge-only movement."""
+        my_charge = state[12]
+        my_cooldown = state[14]
+
+        # No charge = must charge (movement does nothing without charge)
+        if my_charge < 0.05 or my_cooldown > 0.05:
+            return 0  # charge
+
+        # sufficient charge - can do epsilon-greedy exploration
         if random.random() < self.epsilon:
-            my_charge = state[12]
-            my_cooldown = state[14]
-
-            # No charge = must charge (movement does nothing without charge)
-            if my_charge < 0.05 or my_cooldown > 0.05:
-                return 0  # charge
-
-            # Have charge: decide whether to charge more or dash
             # Higher charge → more likely to release
             release_prob = 0.15 + 0.6 * my_charge
             if random.random() < release_prob:
@@ -62,6 +62,7 @@ class DQNAgent:
                 return self._angle_to_action(angle)
             return 0  # keep charging
 
+        # greedy
         with torch.no_grad():
             q_values = self.q_net(state.reshape(1, -1))
             return int(q_values.argmax(dim=1).item())
@@ -84,6 +85,15 @@ class DQNAgent:
 
     def get_action_greedy(self, state: np.ndarray) -> int:
         """Purely greedy (no exploration) for test/PvP."""
+        # No choice but to charge if insufficient charge
+        my_charge = state[12]
+        my_cooldown = state[14]
+
+        # No charge = must charge (movement does nothing without charge)
+        if my_charge < 0.05 or my_cooldown > 0.05:
+            return 0  # charge
+        
+        # greedy
         with torch.no_grad():
             q_values = self.q_net(state.reshape(1, -1))
             return int(q_values.argmax(dim=1).item())

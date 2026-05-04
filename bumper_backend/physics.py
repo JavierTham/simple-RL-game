@@ -21,7 +21,7 @@ import random
 import numpy as np
 import pymunk
 
-ARENA_RADIUS = 150
+ARENA_RADIUS = 110
 BOT_RADIUS = 15
 MAX_SPEED = 6.0
 DASH_MIN_SPEED = 10.0       # dash at minimum viable charge (~10%)

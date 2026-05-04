@@ -277,7 +277,7 @@ class Trainer:
 
         snapshots: list[dict] = []  # FIFO of past-self weights for self-play
 
-        wins, recent = 0, []
+        wins, recent_wins, recent_losses = 0, [], []
         for ep in range(num_episodes):
             if not self.is_training:
                 break
@@ -296,16 +296,21 @@ class Trainer:
             result = self.run_episode(self.agent, opponent, rw, train=True)
 
             won = result['winner'] == 0
+            lost = result['winner'] == 1
             if won:
                 wins += 1
-            recent.append(int(won))
-            if len(recent) > 100:
-                recent.pop(0)
+            recent_wins.append(int(won))
+            recent_losses.append(int(lost))
+            if len(recent_wins) > 100:
+                recent_wins.pop(0)
+            if len(recent_losses) > 100:
+                recent_losses.pop(0)
 
             stats = {
                 'episode': ep + 1,
                 'total_episodes': num_episodes,
-                'win_rate': round(sum(recent) / len(recent), 4),
+                'win_rate': round(sum(recent_wins) / len(recent_wins), 4),
+                'lose_rate': round(sum(recent_losses) / len(recent_losses), 4),
                 'total_wins': wins,
                 'avg_reward': round(result['total_reward'], 4),
                 'steps': result['steps'],

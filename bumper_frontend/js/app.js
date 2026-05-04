@@ -134,7 +134,11 @@
     $$('input[type="range"]').forEach(slider => {
         const id = slider.id.replace('slider-', '');
         slider.addEventListener('input', () => {
-            $(`#val-${id}`).textContent = parseFloat(slider.value).toFixed(1);
+            // $(`#val-${id}`).textContent = parseFloat(slider.value).toFixed(1);
+            $(`#val-${id}`).textContent =
+                id === "input_episodes"
+                    ? parseInt(slider.value)
+                    : parseFloat(slider.value).toFixed(1);
             // Deactivate preset buttons when user manually adjusts
             $$('.preset-btn').forEach(b => b.classList.remove('active'));
         });
@@ -175,7 +179,7 @@
         isTraining = true;
 
         const config = {
-            num_episodes: parseInt($('#input-episodes').value),
+            num_episodes: parseInt($('#slider-input_episodes').value),
             learning_rate: parseFloat($('#input-lr').value),
             reward_weights: getRewardWeights(),
         };
@@ -205,11 +209,11 @@
         progressText.textContent = `${data.episode} / ${data.total_episodes} (${pct}%)`;
         $('#stat-winrate').textContent = (data.win_rate * 100).toFixed(1) + '%';
         $('#stat-episode').textContent = data.episode;
-        $('#stat-wins').textContent = data.total_wins;
+        $('#stat-wins').textContent = (data.lose_rate * 100).toFixed(1) + '%';
         $('#stat-reward').textContent = data.avg_reward.toFixed(2);
 
         if (liveChart) {
-            liveChart.push(data.win_rate, data.avg_reward);
+            liveChart.push(data.win_rate, data.lose_rate);
         }
     });
 
