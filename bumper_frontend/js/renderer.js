@@ -23,6 +23,11 @@ class Renderer {
 
         this.bot1Color = '#4fc3f7';
         this.bot2Color = '#e040fb';
+
+        // Bot sprite images (drawn over the body, clipped to the bot circle).
+        // If a sprite fails to load, the original gradient body is used instead.
+        this.bot1Image = this._loadSprite('/assets/bot1.png');
+        this.bot2Image = this._loadSprite('/assets/bot2.png');
         this.goldColor = '#c9a84c';
         this.chargeColorStart = '#4fc3f7';  // blue → white → gold
         this.chargeColorFull = '#ffd54f';
@@ -51,6 +56,15 @@ class Renderer {
         // Start idle animation
         this._idle = true;
         this._animateIdle();
+    }
+
+    _loadSprite(src) {
+        const img = new Image();
+        img.ready = false;
+        img.onload = () => { img.ready = true; };
+        img.onerror = () => { img.ready = false; };
+        img.src = src;
+        return img;
     }
 
     // ── coordinate conversion ──────────────────────────────
@@ -133,8 +147,8 @@ class Renderer {
         }
 
         // Bots
-        this._drawBot(bots[0], this.bot1Color, data.actions ? data.actions[0] : -1);
-        this._drawBot(bots[1], this.bot2Color, data.actions ? data.actions[1] : -1);
+        this._drawBot(bots[0], this.bot1Color, data.actions ? data.actions[0] : -1, this.bot1Image);
+        this._drawBot(bots[1], this.bot2Color, data.actions ? data.actions[1] : -1, this.bot2Image);
 
         // Step counter
         this.ctx.fillStyle = 'rgba(200,190,220,0.4)';
@@ -223,7 +237,7 @@ class Renderer {
     }
 
     // ── bot ────────────────────────────────────────────────
-    _drawBot(bot, color, action) {
+    _drawBot(bot, color, action, sprite) {
         const ctx = this.ctx;
         const x = this.wx(bot.x);
         const y = this.wy(bot.y);
@@ -326,21 +340,36 @@ class Renderer {
         ctx.shadowColor = dashing ? '#ffffff' : color;
         ctx.shadowBlur = dashing ? 35 : 22;
 
-        // Body
-        const bodyG = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, 0, x, y, r);
-        if (dashing) {
-            bodyG.addColorStop(0, '#ffffff');
-            bodyG.addColorStop(0.3, '#ffffff');
-            bodyG.addColorStop(1, color);
+        if (sprite && sprite.ready) {
+            // Sprite body — clipped to the bot circle so corners don't poke out.
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.save();
+            ctx.clip();
+            ctx.drawImage(sprite, x - r, y - r, r * 2, r * 2);
+            if (dashing) {
+                ctx.fillStyle = 'rgba(255,255,255,0.45)';
+                ctx.fillRect(x - r, y - r, r * 2, r * 2);
+            }
+            ctx.restore();
         } else {
-            bodyG.addColorStop(0, '#ffffff');
-            bodyG.addColorStop(0.3, color);
-            bodyG.addColorStop(1, color + '80');
+            // Fallback: original radial-gradient body.
+            const bodyG = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, 0, x, y, r);
+            if (dashing) {
+                bodyG.addColorStop(0, '#ffffff');
+                bodyG.addColorStop(0.3, '#ffffff');
+                bodyG.addColorStop(1, color);
+            } else {
+                bodyG.addColorStop(0, '#ffffff');
+                bodyG.addColorStop(0.3, color);
+                bodyG.addColorStop(1, color + '80');
+            }
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fillStyle = bodyG;
+            ctx.fill();
         }
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fillStyle = bodyG;
-        ctx.fill();
         ctx.restore();
 
         // Inner ring

@@ -18,6 +18,7 @@ SAVED_BOTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'bumper_saved_bot
 os.makedirs(SAVED_BOTS_DIR, exist_ok=True)
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), '..', 'bumper_frontend')
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), '..', 'assets')
 
 
 # ── helpers ──────────────────────────────────────────────────
@@ -143,6 +144,7 @@ async def index():
 
 
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
 
 
 if __name__ == "__main__":
