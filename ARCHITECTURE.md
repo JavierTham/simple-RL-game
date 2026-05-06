@@ -292,3 +292,102 @@ Putting it together, one full step of training:
 7. At episode end, ε decays (× 0.994 per episode, floor 0.05), and any partial n-step transitions are flushed (safe because `done=True` zeros their bootstrap).
 
 The end result is a 9-action policy where the agent has to learn three couplings simultaneously: **how long to charge**, **when to release**, and **what direction to release**, with credit for the eventual hit propagated back to the charge decision via the n-step bootstrap.
+
+---
+
+## 5. The objective / value equations (formal)
+
+Pulling the actual equations directly out of the code:
+
+### 5.1 Q-function (dueling, `neural_net.py:64`)
+
+$$
+Q(s, a;\, \theta) \;=\; V(s;\, \theta) \;+\; \Big(A(s, a;\, \theta) \;-\; \tfrac{1}{|\mathcal{A}|}\sum_{a'} A(s, a';\, \theta)\Big)
+$$
+
+with $|\mathcal{A}| = 9$. The mean-subtraction is the dueling identifiability term (otherwise V and A could shift by a constant without changing Q).
+
+### 5.2 N-step return (`agent.py:131-133`)
+
+For a stored transition starting at step $t$:
+
+$$
+R^{(n)}_t \;=\; \sum_{i=0}^{n-1} \gamma^{i}\, r_{t+i}
+$$
+
+with $n = 6$, $\gamma = 0.95$ (the trainer's overrides at `trainer.py:264-274`).
+
+### 5.3 TD target — Double DQN with n-step bootstrap (`agent.py:163-169`)
+
+$$
+y_t \;=\; R^{(n)}_t \;+\; \gamma^{n}\,(1 - d_{t+n})\;
+Q\!\left(s_{t+n},\; \arg\max_{a'} Q(s_{t+n}, a';\, \theta);\; \theta^{-}\right)
+$$
+
+where:
+- $\theta$ = online net, $\theta^{-}$ = target net.
+- The **online** net selects the action ($\arg\max$); the **target** net evaluates it. That decoupling is the Double-DQN bit (cuts the $\max$ overestimation bias).
+- $d_{t+n}$ is the terminal flag at the end of the n-step window — when set, the bootstrap term is zeroed.
+- The discount on the bootstrap is *always* $\gamma^n$, even for partial-length flushes, because partial flushes only happen when $d=1$ and the $(1-d)$ mask kills the term.
+
+### 5.4 Loss — Huber over the priority-weighted batch (`agent.py:171`)
+
+$$
+\mathcal{L}(\theta) \;=\; \mathbb{E}_{(s_t, a_t, R^{(n)}_t, s_{t+n}, d_{t+n}) \sim \mathcal{D}}\!\left[\,\mathrm{Huber}\!\big(Q(s_t, a_t;\, \theta) - y_t\big)\right]
+$$
+
+$$
+\mathrm{Huber}(x) \;=\;
+\begin{cases}
+\tfrac{1}{2} x^{2}, & |x| \le 1 \\
+|x| - \tfrac{1}{2}, & |x| > 1
+\end{cases}
+$$
+
+Sampling distribution $\mathcal{D}$ is proportional-priority (`neural_net.py:134, 144`):
+
+$$
+p_i \;=\; 1 + 2\,|r_i|, \qquad P(i) \;=\; \frac{p_i}{\sum_j p_j}
+$$
+
+(no importance-sampling correction applied, so the loss is biased relative to canonical PER).
+
+### 5.5 Optimizer step
+
+Adam with $\text{lr}=10^{-3}$, gradient norm clipped to 1.0:
+
+$$
+\theta \;\leftarrow\; \mathrm{Adam}\!\big(\theta,\, \mathrm{clip}(\nabla_\theta \mathcal{L},\, 1.0)\big)
+$$
+
+### 5.6 Soft target update — Polyak averaging (`agent.py:185-186`)
+
+Every gradient step (because `target_update_freq=0` flips the agent into soft-update mode):
+
+$$
+\theta^{-} \;\leftarrow\; (1 - \tau)\,\theta^{-} \;+\; \tau\,\theta, \qquad \tau = 0.01
+$$
+
+### 5.7 Acting policy (the "value" the agent maximizes at inference)
+
+$$
+\pi(s) \;=\; \arg\max_{a \in \mathcal{A}}\, Q(s, a;\, \theta)
+$$
+
+— except masked at the boundary by the charge-only gate (`agent.py:51, 93`):
+
+$$
+\pi(s) \;=\;
+\begin{cases}
+0\;(\text{CHARGE}), & \text{charge}(s) < 0.05 \;\lor\; \text{cooldown}(s) > 0.05 \\
+\arg\max_a Q(s, a;\, \theta), & \text{otherwise}
+\end{cases}
+$$
+
+### 5.8 One-line summary of what's actually being optimized
+
+$$
+\min_{\theta}\; \mathbb{E}_{\mathcal{D}}\!\Bigg[\mathrm{Huber}\!\bigg(\,Q(s_t, a_t;\, \theta) \;-\; \Big[\sum_{i=0}^{n-1}\gamma^{i} r_{t+i} \;+\; \gamma^{n}(1 - d_{t+n})\, Q(s_{t+n},\, \arg\max_{a'} Q(s_{t+n}, a';\,\theta);\, \theta^{-})\Big]\bigg)\Bigg]
+$$
+
+with $n=6$, $\gamma=0.95$, dueling decomposition on Q, Polyak-averaged target net at $\tau=0.01$, and priority-weighted (but uncorrected) sampling from a 20k-capacity buffer.
