@@ -13,6 +13,7 @@ class LiveChart {
 
         this.dataWinRate = [];
         this.dataLossRate = [];
+        this.dataEpsilon = [];
         this.maxLen = 0;
 
         this.padL = 40;
@@ -30,12 +31,16 @@ class LiveChart {
         this.maxLen = maxEpisodes;
         this.dataWinRate = [];
         this.dataLossRate = [];
+        this.dataEpsilon = [];
         this.render();
     }
 
-    push(winRate, lossRate) {
+    push(winRate, lossRate, epsilon) {
         this.dataWinRate.push(winRate);
         this.dataLossRate.push(lossRate);
+        if (epsilon !== undefined && epsilon !== null) {
+            this.dataEpsilon.push(epsilon);
+        }
         this.render();
     }
 
@@ -121,6 +126,25 @@ class LiveChart {
             else this.ctx.lineTo(x, y);
         }
         this.ctx.stroke();
+
+        // Draw Epsilon (exploration rate, 0 to 1) — dashed orange to signal
+        // it's a hyperparameter trace, not a learning rate.
+        if (this.dataEpsilon.length > 0) {
+            const eLen = this.dataEpsilon.length;
+            this.ctx.beginPath();
+            this.ctx.strokeStyle = '#ffa726';
+            this.ctx.lineWidth = 1.5;
+            this.ctx.setLineDash([4, 3]);
+            for (let i = 0; i < eLen; i++) {
+                const x = this.padL + i * dx;
+                const e = Math.max(0, Math.min(1, this.dataEpsilon[i]));
+                const y = this.padT + this.plotH - e * this.plotH;
+                if (i === 0) this.ctx.moveTo(x, y);
+                else this.ctx.lineTo(x, y);
+            }
+            this.ctx.stroke();
+            this.ctx.setLineDash([]);
+        }
     }
 }
 

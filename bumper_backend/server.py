@@ -39,6 +39,45 @@ async def _stream_frames(ws: WebSocket, result: dict, speed: float = 1.0):
         pass  # client disconnected
 
 
+async def _stream_gauntlet(ws: WebSocket, gauntlet: dict, speed: float = 1.0):
+    """Stream the three gauntlet matches in sequence, with per-opponent
+    start/end markers and a final aggregate result."""
+    results = gauntlet.get('results', [])
+    delay = (1 / 60) / speed
+    try:
+        await ws.send_json({'type': 'gauntlet_start',
+                            'total': gauntlet.get('total', len(results))})
+        for idx, m in enumerate(results):
+            await ws.send_json({
+                'type': 'gauntlet_match_start',
+                'opponent': m['opponent'],
+                'strength': m['strength'],
+                'index': idx,
+                'total': len(results),
+            })
+            for frame in m.get('frames', []):
+                await ws.send_json({'type': 'match_frame', **frame})
+                await asyncio.sleep(delay)
+            await ws.send_json({
+                'type': 'gauntlet_match_end',
+                'opponent': m['opponent'],
+                'winner': m['winner'],
+                'won': m['won'],
+                'steps': m['steps'],
+                'index': idx,
+                'total': len(results),
+            })
+        await ws.send_json({
+            'type': 'gauntlet_result',
+            'wins': gauntlet.get('wins', 0),
+            'total': gauntlet.get('total', len(results)),
+            'results': [{k: v for k, v in m.items() if k != 'frames'}
+                        for m in results],
+        })
+    except Exception:
+        pass  # client disconnected
+
+
 async def _run_training(ws: WebSocket, config: dict):
     loop = asyncio.get_event_loop()
     queue: asyncio.Queue = asyncio.Queue()
@@ -81,10 +120,11 @@ async def websocket_endpoint(ws: WebSocket):
             elif t == 'test_match':
                 loop = asyncio.get_event_loop()
                 rw = data.get('reward_weights')
-                result = await loop.run_in_executor(None, lambda: trainer.test_match(rw))
-                if result:
+                gauntlet = await loop.run_in_executor(
+                    None, lambda: trainer.gauntlet_match(rw))
+                if gauntlet:
                     speed = data.get('speed', 1.0)
-                    asyncio.create_task(_stream_frames(ws, result, speed))
+                    asyncio.create_task(_stream_gauntlet(ws, gauntlet, speed))
                 else:
                     await ws.send_json({'type': 'error', 'msg': 'No trained bot yet. Train first!'})
 

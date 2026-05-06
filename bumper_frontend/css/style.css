@@ -929,3 +929,98 @@ input[type="range"]::-moz-range-thumb {
         width: 100%;
     }
 }
+
+/* ── Lab Mode panel ─────────────────────────────────────── */
+.lab-mode-panel {
+    margin-top: 14px;
+    padding: 10px 12px;
+    border: 1px dashed rgba(201, 168, 76, 0.35);
+    border-radius: 6px;
+    background: rgba(40, 28, 70, 0.35);
+}
+
+.lab-mode-panel summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--gold);
+    list-style: none;
+    user-select: none;
+}
+
+.lab-mode-panel summary::-webkit-details-marker { display: none; }
+
+.lab-mode-panel summary::before {
+    content: '▶ ';
+    display: inline-block;
+    transition: transform 0.15s;
+    margin-right: 4px;
+}
+
+.lab-mode-panel[open] summary::before {
+    transform: rotate(90deg);
+}
+
+.lab-mode-panel .lab-hint {
+    font-weight: 400;
+    font-size: 0.7rem;
+    color: var(--gold-dim);
+    margin-left: 6px;
+}
+
+.lab-mode-panel .config-group {
+    margin-top: 10px;
+}
+
+/* ── Gauntlet board ─────────────────────────────────────── */
+.gauntlet-board {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(201, 168, 76, 0.25);
+    border-radius: 6px;
+    background: rgba(20, 14, 40, 0.6);
+}
+
+.gauntlet-header {
+    text-align: center;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(201, 168, 76, 0.15);
+}
+
+.gauntlet-score {
+    font-family: 'Cinzel Decorative', serif;
+    font-size: 1.1rem;
+    color: var(--gold);
+}
+
+.gauntlet-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 0.85rem;
+}
+
+.gauntlet-opp {
+    color: #c8c0d8;
+}
+
+.gauntlet-status {
+    font-weight: 600;
+    color: #9890a8;
+    min-width: 110px;
+    text-align: right;
+}
+
+.gauntlet-status.playing {
+    color: #ffa726;
+}
+
+.gauntlet-status.won {
+    color: #66bb6a;
+}
+
+.gauntlet-status.lost {
+    color: rgba(224, 64, 251, 0.9);
+}

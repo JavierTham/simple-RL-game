@@ -131,16 +131,24 @@
     });
 
     // ── slider live values ─────────────────────────────────
+    function _stepDecimals(slider) {
+        const step = slider.step || '1';
+        const dot = step.indexOf('.');
+        return dot < 0 ? 0 : step.length - dot - 1;
+    }
     $$('input[type="range"]').forEach(slider => {
         const id = slider.id.replace('slider-', '');
         slider.addEventListener('input', () => {
-            // $(`#val-${id}`).textContent = parseFloat(slider.value).toFixed(1);
+            const decimals = _stepDecimals(slider);
             $(`#val-${id}`).textContent =
-                id === "input_episodes"
+                decimals === 0
                     ? parseInt(slider.value)
-                    : parseFloat(slider.value).toFixed(1);
-            // Deactivate preset buttons when user manually adjusts
-            $$('.preset-btn').forEach(b => b.classList.remove('active'));
+                    : parseFloat(slider.value).toFixed(decimals);
+            // Deactivate preset buttons only when a reward slider moved
+            if (slider.id.startsWith('slider-') &&
+                ['win_bonus','charge_reward','hit_reward','opp_edge','edge_penalty'].includes(id)) {
+                $$('.preset-btn').forEach(b => b.classList.remove('active'));
+            }
         });
     });
 
@@ -182,6 +190,11 @@
             num_episodes: parseInt($('#slider-input_episodes').value),
             learning_rate: parseFloat($('#input-lr').value),
             reward_weights: getRewardWeights(),
+            // Lab Mode hyperparameters (defaults match prior backend hardcoded values)
+            gamma: parseFloat($('#slider-gamma').value),
+            epsilon_decay: parseFloat($('#slider-epsilon_decay').value),
+            n_steps: parseInt($('#select-n_steps').value),
+            curriculum: $('#select-curriculum').value,
         };
 
         conn.send('start_training', { config });
@@ -213,7 +226,7 @@
         $('#stat-reward').textContent = data.avg_reward.toFixed(2);
 
         if (liveChart) {
-            liveChart.push(data.win_rate, data.lose_rate);
+            liveChart.push(data.win_rate, data.lose_rate, data.epsilon);
         }
     });
 
@@ -260,20 +273,83 @@
         toast(`Bot "${data.name}" saved! 💾`, 'success');
     });
 
-    // ── test match ─────────────────────────────────────────
+    // ── test match (gauntlet) ──────────────────────────────
+    const gauntletBoard = $('#gauntlet-board');
+    const gauntletScore = $('#gauntlet-score');
+    function resetGauntletBoard() {
+        ['Easy', 'Medium', 'Hard'].forEach(opp => {
+            const el = $(`#gauntlet-status-${opp}`);
+            if (el) {
+                el.textContent = '—';
+                el.classList.remove('won', 'lost', 'playing');
+            }
+        });
+        if (gauntletScore) gauntletScore.textContent = '0 / 3';
+    }
+
     btnTest.addEventListener('click', () => {
         if (!trainedWeights) { toast('Train a bot first!', 'error'); return; }
         if (isPlaying) return;
         isPlaying = true;
         btnTest.disabled = true;
         testResult.classList.add('hidden');
+        resetGauntletBoard();
+        if (gauntletBoard) gauntletBoard.classList.remove('hidden');
         renderer.clearTrails();
         renderer.startMatch();
-        statusCenter.textContent = 'Test Match';
-        showOverlay('⚔️ Test Match!', 1500);
+        statusCenter.textContent = 'Gauntlet';
+        showOverlay('⚔️ Gauntlet!', 1500);
 
         const speed = parseFloat($('#test-speed').value);
         conn.send('test_match', { reward_weights: getRewardWeights(), speed });
+    });
+
+    conn.on('gauntlet_start', () => {
+        resetGauntletBoard();
+    });
+
+    conn.on('gauntlet_match_start', (data) => {
+        const el = $(`#gauntlet-status-${data.opponent}`);
+        if (el) {
+            el.textContent = '⏳';
+            el.classList.add('playing');
+        }
+        statusCenter.textContent = `Gauntlet ${data.index + 1}/${data.total}: ${data.opponent}`;
+        showOverlay(`vs ${data.opponent}`, 900);
+    });
+
+    conn.on('gauntlet_match_end', (data) => {
+        const el = $(`#gauntlet-status-${data.opponent}`);
+        if (el) {
+            el.classList.remove('playing');
+            if (data.won) {
+                el.textContent = `✓ WIN (${data.steps})`;
+                el.classList.add('won');
+            } else if (data.winner === -1) {
+                el.textContent = `— DRAW (${data.steps})`;
+            } else {
+                el.textContent = `✗ LOSS (${data.steps})`;
+                el.classList.add('lost');
+            }
+        }
+    });
+
+    conn.on('gauntlet_result', (data) => {
+        isPlaying = false;
+        renderer.stopMatch();
+        btnTest.disabled = false;
+        if (gauntletScore) gauntletScore.textContent = `${data.wins} / ${data.total}`;
+        const summary = data.wins === data.total
+            ? `🏆 Swept the gauntlet! ${data.wins}/${data.total}`
+            : data.wins === 0
+            ? `💀 Failed all ${data.total} matches`
+            : `${data.wins}/${data.total} wins`;
+        testResultText.textContent = summary;
+        testResult.classList.remove('hidden');
+        statusCenter.textContent = summary;
+        showOverlay(summary, 2500);
+        if (data.wins === data.total && window.audio) window.audio.playWin();
+        else if (data.wins === 0 && window.audio) window.audio.playLoss();
     });
 
     // ── PvP & Tourney ────────────────────────────────────────────────

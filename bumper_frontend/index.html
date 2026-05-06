@@ -60,27 +60,27 @@
                     <button class="preset-btn hackable" data-preset="stalker" id="preset-stalker">🔬 Stalker</button>
                 </div>
                 <div class="slider-group" id="reward-sliders">
-                    <div class="slider-row">
+                    <div class="slider-row" title="Reward when your bot knocks the opponent off — bigger = more focus on closing wins.">
                         <label>Win Bonus</label>
                         <input type="range" min="0" max="2" step="0.1" value="1.0" id="slider-win_bonus">
                         <span class="slider-val" id="val-win_bonus">1.0</span>
                     </div>
-                    <div class="slider-row">
+                    <div class="slider-row" title="Reward for charging up while exposed — encourages building dash power instead of dribbling around.">
                         <label>Charge Power</label>
                         <input type="range" min="0" max="2" step="0.1" value="1.0" id="slider-charge_reward">
                         <span class="slider-val" id="val-charge_reward">1.0</span>
                     </div>
-                    <div class="slider-row">
+                    <div class="slider-row" title="Reward for landing a dash — bigger = bot prioritizes contact even if it doesn't lead to a win.">
                         <label>Hit Reward</label>
                         <input type="range" min="0" max="2" step="0.1" value="1.0" id="slider-hit_reward">
                         <span class="slider-val" id="val-hit_reward">1.0</span>
                     </div>
-                    <div class="slider-row">
+                    <div class="slider-row" title="Reward when the opponent is near the rim — encourages ring-out tactics.">
                         <label>Opp. Edge Push</label>
                         <input type="range" min="0" max="2" step="0.1" value="1.0" id="slider-opp_edge">
                         <span class="slider-val" id="val-opp_edge">1.0</span>
                     </div>
-                    <div class="slider-row">
+                    <div class="slider-row" title="Penalty when YOUR bot is near the rim — discourages risky positioning.">
                         <label>Edge Penalty</label>
                         <input type="range" min="0" max="2" step="0.1" value="1.0" id="slider-edge_penalty">
                         <span class="slider-val" id="val-edge_penalty">1.0</span>
@@ -89,17 +89,52 @@
 
                 <h2 class="section-title">📜 Training Config</h2>
                 <div class="config-group">
-                    <div class="slider-row">
+                    <div class="slider-row" title="How many practice fights — more = more learning, but slower.">
                         <label for="input-episodes">Episodes</label>
                         <!-- <input type="number" id="input-episodes" value="1000" min="100" max="10000" step="100"> -->
                         <input type="range" min="100" max="500" step="1" value="100" id="slider-input_episodes">
                         <span class="slider-val" id="val-input_episodes">100</span>
                     </div>
-                    <div class="config-row">
+                    <div class="config-row" title="How big a step the bot takes after each lesson — too high thrashes, too low is slow.">
                         <label for="input-lr">Learning Rate</label>
                         <input type="number" id="input-lr" value="0.001" min="0.0001" max="0.1" step="0.0001">
                     </div>
                 </div>
+
+                <details class="lab-mode-panel" id="lab-mode-panel">
+                    <summary>🔬 Lab Mode <span class="lab-hint">(advanced — knobs that reward RL knowledge)</span></summary>
+                    <div class="config-group">
+                        <div class="slider-row" title="How far ahead your bot plans — low values make it greedy for instant rewards, high values make it patient for the big knockout.">
+                            <label for="slider-gamma">Foresight (γ)</label>
+                            <input type="range" min="0.5" max="0.99" step="0.01" value="0.95" id="slider-gamma">
+                            <span class="slider-val" id="val-gamma">0.95</span>
+                        </div>
+                        <div class="slider-row" title="How quickly your bot stops trying random moves and commits to its best strategy — slower decay = more experimenting before settling.">
+                            <label for="slider-epsilon_decay">Curiosity decay</label>
+                            <input type="range" min="0.985" max="0.999" step="0.001" value="0.994" id="slider-epsilon_decay">
+                            <span class="slider-val" id="val-epsilon_decay">0.994</span>
+                        </div>
+                        <div class="config-row" title="How many moves back your bot looks when figuring out which charge led to a hit — bigger window connects the charge to the dash that paid off.">
+                            <label for="select-n_steps">Credit window</label>
+                            <select id="select-n_steps">
+                                <option value="1">1 step</option>
+                                <option value="3">3 steps</option>
+                                <option value="6" selected>6 steps</option>
+                                <option value="10">10 steps</option>
+                            </select>
+                        </div>
+                        <div class="config-row" title="Who your bot trains against — easy dummies build basics, mirror matches force real strategy.">
+                            <label for="select-curriculum">Sparring partners</label>
+                            <select id="select-curriculum">
+                                <option value="easy_only">Dummy drills (easy only)</option>
+                                <option value="easy_to_hard">Gentle ramp</option>
+                                <option value="default" selected>Balanced league (default)</option>
+                                <option value="hard_only">Sink or swim (hard only)</option>
+                                <option value="self_play">Mirror match (self-play)</option>
+                            </select>
+                        </div>
+                    </div>
+                </details>
 
                 <button class="btn btn-primary" id="btn-train">▶ Begin Training</button>
                 <button class="btn btn-danger hidden" id="btn-stop-train">⏹ Stop Training</button>
@@ -134,6 +169,7 @@
                     <div class="chart-legend">
                         <span style="color:#66bb6a; font-size:.75rem;">■ Win Rate</span>
                         <span style="color:rgba(224,64,251,0.8); font-size:.75rem; margin-left:12px;">■ Loss Rate</span>
+                        <span style="color:#ffa726; font-size:.75rem; margin-left:12px;">┄ Curiosity (ε)</span>
                     </div>
                     <canvas id="training-chart" width="400" height="120"></canvas>
                 </div>
@@ -145,8 +181,10 @@
 
             <!-- ═══════ TEST TAB ═══════ -->
             <div class="tab-content" id="panel-test">
-                <h2 class="section-title">⚔️ Test Arena</h2>
-                <p class="panel-desc">Pit your trained bot against the default heuristic opponent.</p>
+                <h2 class="section-title">⚔️ Gauntlet</h2>
+                <p class="panel-desc">Run your bot against three opponents of increasing difficulty.
+                    A bot that only learned to beat dummies will fail the Hard match — sweeping all three
+                    is the real test of generalization.</p>
                 <div class="config-row">
                     <label for="test-speed">Playback Speed</label>
                     <select id="test-speed">
@@ -158,9 +196,26 @@
                         <option value="4">4×</option>
                     </select>
                 </div>
-                <button class="btn btn-primary" id="btn-test">⚔️ Start Test Match</button>
+                <button class="btn btn-primary" id="btn-test">⚔️ Run Gauntlet</button>
                 <div class="match-result-box hidden" id="test-result">
                     <span id="test-result-text"></span>
+                </div>
+                <div class="gauntlet-board hidden" id="gauntlet-board">
+                    <div class="gauntlet-header">
+                        <span class="gauntlet-score" id="gauntlet-score">0 / 3</span>
+                    </div>
+                    <div class="gauntlet-row" data-opp="Easy">
+                        <span class="gauntlet-opp">Easy (str 0.3)</span>
+                        <span class="gauntlet-status" id="gauntlet-status-Easy">—</span>
+                    </div>
+                    <div class="gauntlet-row" data-opp="Medium">
+                        <span class="gauntlet-opp">Medium (str 0.6)</span>
+                        <span class="gauntlet-status" id="gauntlet-status-Medium">—</span>
+                    </div>
+                    <div class="gauntlet-row" data-opp="Hard">
+                        <span class="gauntlet-opp">Hard (str 1.0)</span>
+                        <span class="gauntlet-status" id="gauntlet-status-Hard">—</span>
+                    </div>
                 </div>
             </div>
 

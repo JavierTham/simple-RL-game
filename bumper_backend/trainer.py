@@ -170,28 +170,46 @@ class Trainer:
 
     # ── opponent sampling (curriculum + self-play league) ───
     def _pick_opponent(self, progress: float, snapshots: list[dict]):
-        """Sample an opponent type from a 4-way mix that shifts toward
-        self-play as training progresses. Mix tuples are (easy_heuristic,
-        hard_heuristic, past_self_dqn, current_self_dqn) probabilities.
+        """Sample an opponent based on the configured curriculum preset.
+        Mix tuples are (easy_heuristic, hard_heuristic, past_self_dqn,
+        current_self_dqn) probabilities.
 
-        Early (progress < 0.3): mostly weak heuristic so the agent learns
-        the basic charge→dash loop without being instantly KO'd.
-        Mid   (0.3–0.7): even mix; self-play kicks in as snapshots fill.
-        Late  (>0.7): mostly self-play so policy generalizes beyond the
-        scripted heuristic's specific weaknesses.
+        Presets:
+          easy_only    — always weak DefaultAgent (strength=0.3). Bot
+                         crushes the dummy but fails on real opponents.
+          easy_to_hard — gentle ramp: starts mostly easy, ends mixed
+                         with self-play. Often the strongest setting.
+          default      — original 3-phase schedule (preserved verbatim).
+          hard_only    — always max-strength heuristic. Often plateaus
+                         because the bot can't bootstrap basic skills.
+          self_play    — past + current snapshots only (folded to
+                         current-self if no snapshots yet).
 
-        If no snapshots are available yet, the past-self mass is folded
+        If no snapshots are available, the past-self mass is folded
         into the current-self bucket (any self-play is better than none).
         """
-        if progress < 0.3:
-            mix = (0.55, 0.30, 0.05, 0.10)
-        elif progress < 0.7:
-            mix = (0.20, 0.30, 0.30, 0.20)
-        else:
-            mix = (0.05, 0.20, 0.45, 0.30)
+        curriculum = getattr(self, 'curriculum', 'default')
+
+        if curriculum == 'easy_only':
+            return DefaultAgent(strength=0.3)
+        if curriculum == 'hard_only':
+            return DefaultAgent(strength=1.0)
+
+        if curriculum == 'self_play':
+            mix = (0.0, 0.0, 0.4, 0.6)
+        elif curriculum == 'easy_to_hard':
+            # Linear interp (0.8, 0.2, 0, 0) → (0.1, 0.4, 0.3, 0.2)
+            a, b = (0.8, 0.2, 0.0, 0.0), (0.1, 0.4, 0.3, 0.2)
+            mix = tuple(a[i] + (b[i] - a[i]) * progress for i in range(4))
+        else:  # 'default' — preserve original 3-phase logic
+            if progress < 0.3:
+                mix = (0.55, 0.30, 0.05, 0.10)
+            elif progress < 0.7:
+                mix = (0.20, 0.30, 0.30, 0.20)
+            else:
+                mix = (0.05, 0.20, 0.45, 0.30)
 
         if not snapshots:
-            # Fold past-self mass into current-self
             mix = (mix[0], mix[1], 0.0, mix[2] + mix[3])
 
         kind = random.choices(['easy', 'hard', 'past', 'current'], weights=mix, k=1)[0]
@@ -261,16 +279,23 @@ class Trainer:
         lr = config.get('learning_rate', 0.001)
         rw = config.get('reward_weights', {})
 
+        # Lab Mode hyperparameters — defaults match the prior hardcoded values
+        # so behavior is unchanged when these keys are absent.
+        gamma = config.get('gamma', 0.95)
+        epsilon_decay = config.get('epsilon_decay', 0.994)
+        n_steps = config.get('n_steps', 6)
+        self.curriculum = config.get('curriculum', 'default')
+
         self.agent = DQNAgent(
             lr=lr,
-            gamma=0.95,
+            gamma=gamma,
             epsilon_start=1.0,
             epsilon_end=0.05,
-            epsilon_decay=0.994,
+            epsilon_decay=epsilon_decay,
             batch_size=128,
             target_update_freq=0,
             tau=0.01,
-            n_steps=6,
+            n_steps=n_steps,
         )
         self.is_training = True
         self.training_stats.clear()
@@ -324,14 +349,36 @@ class Trainer:
         self.is_training = False
         return self.agent.get_weights() if self.agent else None
 
-    # ── test match ───────────────────────────────────────────
-    def test_match(self, reward_weights: dict | None = None):
+    # ── gauntlet (held-out evaluation against 3 difficulties) ─
+    GAUNTLET = (('Easy', 0.3), ('Medium', 0.6), ('Hard', 1.0))
+
+    def gauntlet_match(self, reward_weights: dict | None = None):
+        """Run the trained agent against three fixed-strength heuristics
+        in sequence. Wins/3 is a held-out generalization score: an agent
+        trained on `easy_only` will ace Easy but drop Hard, while one
+        trained on `default` or `easy_to_hard` should sweep."""
         if self.agent is None:
             return None
-        result = self.run_episode(self.agent, DefaultAgent(),
-                                  reward_weights or {},
-                                  train=False, record_frames=True)
-        return result
+        rw = reward_weights or {}
+        results = []
+        wins = 0
+        for label, strength in self.GAUNTLET:
+            ep = self.run_episode(self.agent,
+                                  DefaultAgent(strength=strength),
+                                  rw, train=False, record_frames=True)
+            won = ep['winner'] == 0
+            if won:
+                wins += 1
+            results.append({
+                'opponent': label,
+                'strength': strength,
+                'winner': ep['winner'],
+                'steps': ep['steps'],
+                'frames': ep['frames'],
+                'won': won,
+            })
+        return {'results': results, 'wins': wins,
+                'total': len(self.GAUNTLET)}
 
     # ── PvP match ────────────────────────────────────────────
     def run_match(self, w1: dict | None, w2: dict | None):
