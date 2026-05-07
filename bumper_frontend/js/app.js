@@ -9,14 +9,6 @@
     let trainedWeights = null;  // weights of last trained bot
     let pvpBot1Weights = null;
     let pvpBot2Weights = null;
-    let tourneyBotsWeights = [null, null, null, null];
-    let tourneyBotNames = ['', '', '', ''];
-    let tourneyPhase = 0; // 0: inactive, 1: SF1, 2: SF2, 3: Final
-    let tourneyScores = [0, 0];
-    let tourneyRoundsPlayed = 0;
-    let tourneyRoundsTotal = 3;
-    let tourneyWinners = ['', ''];
-    let tourneyWinnerWeights = [null, null];
     let isTraining = false;
     let isPlaying = false;      // match is being streamed
     let pvpScores = [0, 0];
@@ -57,12 +49,6 @@
     const pvpScoreboard = $('#pvp-scoreboard');
     const pvpResult = $('#pvp-result');
     const pvpResultText = $('#pvp-result-text');
-
-    // Tourney
-    const btnTourney = $('#btn-start-tourney');
-    const tourneyBracket = $('#tourney-bracket');
-    const tourneyStatusBox = $('#tourney-status-box');
-    const tourneyStatusText = $('#tourney-status-text');
 
     // Save modal
     const saveModal = $('#save-modal');
@@ -159,7 +145,6 @@
         // ── Hackable experiments (reward hacking demos) ──
         camper: { win_bonus: 0.2, charge_reward: 0.0, hit_reward: 0.0, opp_edge: 0.0, edge_penalty: 2.0 },
         bumper: { win_bonus: 0.1, charge_reward: 2.0, hit_reward: 2.0, opp_edge: 0.0, edge_penalty: 0.0 },
-        stalker: { win_bonus: 0.0, charge_reward: 0.5, hit_reward: 0.0, opp_edge: 2.0, edge_penalty: 0.5 },
     };
 
     function applyPreset(name) {
@@ -352,9 +337,9 @@
         else if (data.wins === 0 && window.audio) window.audio.playLoss();
     });
 
-    // ── PvP & Tourney ────────────────────────────────────────────────
+    // ── PvP ────────────────────────────────────────────────
     conn.on('bot_list', (data) => {
-        ['pvp-bot1-select', 'pvp-bot2-select', 'tourney-bot1', 'tourney-bot2', 'tourney-bot3', 'tourney-bot4'].forEach(selId => {
+        ['pvp-bot1-select', 'pvp-bot2-select'].forEach(selId => {
             const sel = $(`#${selId}`);
             if (!sel) return;
             const current = sel.value;
@@ -400,11 +385,6 @@
         if (this.value) conn.send('load_bot', { name: this.value, slot: 2 });
     });
 
-    $('#tourney-bot1')?.addEventListener('change', function () { if (this.value) conn.send('load_bot', { name: this.value, slot: 11 }); });
-    $('#tourney-bot2')?.addEventListener('change', function () { if (this.value) conn.send('load_bot', { name: this.value, slot: 12 }); });
-    $('#tourney-bot3')?.addEventListener('change', function () { if (this.value) conn.send('load_bot', { name: this.value, slot: 13 }); });
-    $('#tourney-bot4')?.addEventListener('change', function () { if (this.value) conn.send('load_bot', { name: this.value, slot: 14 }); });
-
     // Upload from file
     $('#pvp-bot1-upload').addEventListener('change', (e) => loadBotFromFile(e, 1));
     $('#pvp-bot2-upload').addEventListener('change', (e) => loadBotFromFile(e, 2));
@@ -438,10 +418,6 @@
         } else if (data.slot === 2) {
             pvpBot2Weights = data.data.weights;
             $('#pvp-bot2-status').textContent = `✓ "${data.data.name}" loaded`;
-        } else if (data.slot >= 11 && data.slot <= 14) {
-            let idx = data.slot - 11;
-            tourneyBotsWeights[idx] = data.data.weights;
-            tourneyBotNames[idx] = data.data.name;
         }
         toast(`Bot "${data.data.name}" loaded`, 'success');
     });
@@ -528,121 +504,8 @@
                 // Next round after delay
                 setTimeout(() => startPvpRound(), 2000);
             }
-        } else if (activeTab === 'tourney') {
-            tourneyRoundsPlayed++;
-            if (data.winner === 0) tourneyScores[0]++;
-            else if (data.winner === 1) tourneyScores[1]++;
-
-            showOverlay(winnerText, 1500);
-
-            const winsNeeded = Math.ceil(tourneyRoundsTotal / 2);
-            if (tourneyScores[0] >= winsNeeded || tourneyScores[1] >= winsNeeded || tourneyRoundsPlayed >= tourneyRoundsTotal) {
-                // Determine series winner
-                const wIdx = tourneyScores[0] > tourneyScores[1] ? 0 : 1;
-                let wName = ''; let wW = null;
-                if (tourneyPhase === 1) {
-                    wName = tourneyBotNames[wIdx]; wW = tourneyBotsWeights[wIdx];
-                    tourneyWinners[0] = wName; tourneyWinnerWeights[0] = wW;
-                    $('#sf1-p1').classList.toggle('winner', wIdx === 0); $('#sf1-p1').classList.toggle('loser', wIdx !== 0);
-                    $('#sf1-p2').classList.toggle('winner', wIdx === 1); $('#sf1-p2').classList.toggle('loser', wIdx !== 1);
-                    $('#fin-p1').textContent = wName;
-                } else if (tourneyPhase === 2) {
-                    wName = tourneyBotNames[2 + wIdx]; wW = tourneyBotsWeights[2 + wIdx];
-                    tourneyWinners[1] = wName; tourneyWinnerWeights[1] = wW;
-                    $('#sf2-p1').classList.toggle('winner', wIdx === 0); $('#sf2-p1').classList.toggle('loser', wIdx !== 0);
-                    $('#sf2-p2').classList.toggle('winner', wIdx === 1); $('#sf2-p2').classList.toggle('loser', wIdx !== 1);
-                    $('#fin-p2').textContent = wName;
-                } else if (tourneyPhase === 3) {
-                    wName = tourneyWinners[wIdx];
-                    $('#fin-p1').classList.toggle('winner', wIdx === 0); $('#fin-p1').classList.toggle('loser', wIdx !== 0);
-                    $('#fin-p2').classList.toggle('winner', wIdx === 1); $('#fin-p2').classList.toggle('loser', wIdx !== 1);
-                    $('#tourney-champ').textContent = `🏆 ${wName} 🏆`;
-                    tourneyStatusText.textContent = `👑 THE GRAND CHAMPION IS ${wName} 👑`;
-                    tourneyStatusBox.classList.remove('hidden');
-                    btnTourney.disabled = false;
-                    statusCenter.textContent = `${wName} takes the Crown!`;
-                    if (window.audio) window.audio.playWin();
-                    tourneyPhase = 0;
-                    return;
-                }
-
-                // Next phase
-                tourneyPhase++;
-                setTimeout(() => startTourneySeries(), 2500);
-            } else {
-                // Next match in same series
-                setTimeout(() => runTourneyMatch(), 2000);
-            }
         }
     });
-
-    // ── Tourney Handlers ─────────────────────────────────────
-    btnTourney?.addEventListener('click', () => {
-        if (tourneyBotsWeights.includes(null)) {
-            toast('Load 4 bots to start!', 'error'); return;
-        }
-        if (isPlaying) return;
-
-        btnTourney.disabled = true;
-        tourneyBracket.classList.remove('hidden');
-        tourneyStatusBox.classList.add('hidden');
-
-        // reset UI
-        ['sf1-p1', 'sf1-p2', 'sf2-p1', 'sf2-p2', 'fin-p1', 'fin-p2'].forEach(id => {
-            $(`#${id}`).classList.remove('winner', 'loser');
-        });
-        $('#sf1-p1').textContent = tourneyBotNames[0];
-        $('#sf1-p2').textContent = tourneyBotNames[1];
-        $('#sf2-p1').textContent = tourneyBotNames[2];
-        $('#sf2-p2').textContent = tourneyBotNames[3];
-        $('#fin-p1').textContent = 'TBD';
-        $('#fin-p2').textContent = 'TBD';
-        $('#tourney-champ').textContent = '🏆 ? 🏆';
-
-        tourneyRoundsTotal = parseInt($('#tourney-rounds').value);
-        tourneyPhase = 1;
-        startTourneySeries();
-    });
-
-    function startTourneySeries() {
-        tourneyScores = [0, 0];
-        tourneyRoundsPlayed = 0;
-
-        $$('.bracket-match').forEach(m => m.classList.remove('active'));
-        if (tourneyPhase === 1) {
-            $('#tm-sf1').classList.add('active');
-            statusCenter.textContent = 'Semifinal 1';
-            showOverlay('Semifinal 1', 1500);
-        } else if (tourneyPhase === 2) {
-            $('#tm-sf2').classList.add('active');
-            statusCenter.textContent = 'Semifinal 2';
-            showOverlay('Semifinal 2', 1500);
-        } else if (tourneyPhase === 3) {
-            $('#tm-fin').classList.add('active');
-            statusCenter.textContent = 'Grand Final';
-            showOverlay('Grand Final', 2000);
-        }
-
-        setTimeout(() => runTourneyMatch(), 2000);
-    }
-
-    function runTourneyMatch() {
-        isPlaying = true;
-        renderer.clearTrails();
-        renderer.startMatch();
-        const speed = parseFloat($('#tourney-speed').value);
-
-        let bw1, bw2;
-        if (tourneyPhase === 1) {
-            bw1 = tourneyBotsWeights[0]; bw2 = tourneyBotsWeights[1];
-        } else if (tourneyPhase === 2) {
-            bw1 = tourneyBotsWeights[2]; bw2 = tourneyBotsWeights[3];
-        } else {
-            bw1 = tourneyWinnerWeights[0]; bw2 = tourneyWinnerWeights[1];
-        }
-
-        conn.send('pvp_match', { bot1_weights: bw1, bot2_weights: bw2, speed });
-    }
 
     // ── error handler ──────────────────────────────────────
     conn.on('error', (data) => {
