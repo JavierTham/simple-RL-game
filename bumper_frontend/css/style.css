@@ -349,6 +349,77 @@ body {
 .slider-row label {
     font-size: .82rem;
     color: var(--text-dim);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* ── Info hover button + tooltip ─────────────────────────── */
+.info-btn {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--gold-dim, rgba(212, 175, 55, .5));
+    background: transparent;
+    color: var(--gold, #d4af37);
+    font: 600 10px/1 'Inter', sans-serif;
+    cursor: help;
+    position: relative;
+    transition: background .15s, color .15s, box-shadow .15s;
+}
+
+.info-btn:hover,
+.info-btn:focus-visible {
+    background: var(--gold, #d4af37);
+    color: #1a1530;
+    box-shadow: 0 0 8px var(--gold-glow, rgba(212, 175, 55, .6));
+    outline: none;
+}
+
+.info-btn::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: -4px;
+    width: 220px;
+    padding: 8px 10px;
+    background: rgba(20, 16, 40, .98);
+    color: #e8e4f5;
+    font: 400 .75rem/1.4 'Inter', sans-serif;
+    text-align: left;
+    border: 1px solid var(--gold-dim, rgba(212, 175, 55, .5));
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .6);
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .15s, visibility .15s;
+    z-index: 100;
+    white-space: normal;
+}
+
+.info-btn::before {
+    content: '';
+    position: absolute;
+    bottom: calc(100% + 2px);
+    left: 4px;
+    border: 6px solid transparent;
+    border-top-color: var(--gold-dim, rgba(212, 175, 55, .5));
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .15s, visibility .15s;
+    z-index: 100;
+}
+
+.info-btn:hover::after,
+.info-btn:focus-visible::after,
+.info-btn:hover::before,
+.info-btn:focus-visible::before {
+    opacity: 1;
+    visibility: visible;
 }
 
 .slider-val {

@@ -59,27 +59,27 @@
                 </div>
                 <div class="slider-group" id="reward-sliders">
                     <div class="slider-row">
-                        <label>Win Bonus</label>
+                        <label>Win Bonus<button type="button" class="info-btn" aria-label="What is Win Bonus?" data-tip="How much the bot cares about winning the match overall. Higher = it'll sacrifice short-term plays for the win.">i</button></label>
                         <input type="range" min="0" max="5" step="0.25" value="1.0" id="slider-win_bonus">
                         <span class="slider-val" id="val-win_bonus">1.0</span>
                     </div>
                     <div class="slider-row">
-                        <label>Charge Power</label>
+                        <label>Charge Power<button type="button" class="info-btn" aria-label="What is Charge Power?" data-tip="Reward for powering up (pulsing) while close to the opponent. Higher = the bot spends more time charging before striking.">i</button></label>
                         <input type="range" min="0" max="5" step="0.25" value="1.0" id="slider-charge_reward">
                         <span class="slider-val" id="val-charge_reward">1.0</span>
                     </div>
                     <div class="slider-row">
-                        <label>Hit Reward</label>
+                        <label>Hit Reward<button type="button" class="info-btn" aria-label="What is Hit Reward?" data-tip="Reward for landing a dash hit (and pain for taking one). Higher = the bot really cares about clean strikes and dodging.">i</button></label>
                         <input type="range" min="0" max="5" step="0.25" value="1.0" id="slider-hit_reward">
                         <span class="slider-val" id="val-hit_reward">1.0</span>
                     </div>
                     <div class="slider-row">
-                        <label>Opp. Edge Push</label>
+                        <label>Opp. Edge Push<button type="button" class="info-btn" aria-label="What is Opp. Edge Push?" data-tip="Reward for shoving the opponent toward the ring's edge. Higher = the bot tries to corner and ring-out the enemy.">i</button></label>
                         <input type="range" min="0" max="5" step="0.25" value="1.0" id="slider-opp_edge">
                         <span class="slider-val" id="val-opp_edge">1.0</span>
                     </div>
                     <div class="slider-row">
-                        <label>Edge Penalty</label>
+                        <label>Edge Penalty<button type="button" class="info-btn" aria-label="What is Edge Penalty?" data-tip="Penalty when the bot itself drifts near the edge. Higher = the bot plays safe and hugs the centre.">i</button></label>
                         <input type="range" min="0" max="5" step="0.25" value="1.0" id="slider-edge_penalty">
                         <span class="slider-val" id="val-edge_penalty">1.0</span>
                     </div>
@@ -88,7 +88,7 @@
                 <h2 class="section-title">📜 Training Config</h2>
                 <div class="config-group">
                     <div class="slider-row">
-                        <label for="input-episodes">Episodes</label>
+                        <label for="input-episodes">Episodes<button type="button" class="info-btn" aria-label="What are Episodes?" data-tip="How many practice matches the bot plays during training. More = better learning, longer wait.">i</button></label>
                         <!-- <input type="number" id="input-episodes" value="1000" min="100" max="10000" step="100"> -->
                         <input type="range" min="100" max="500" step="1" value="100" id="slider-input_episodes">
                         <span class="slider-val" id="val-input_episodes">100</span>
